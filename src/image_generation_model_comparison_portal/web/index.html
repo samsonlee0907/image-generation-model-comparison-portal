@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Generation Model Comparison Portal</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Local Foundry Workbench</p>
+        <h1>Image Generation Model Comparison Portal</h1>
+        <p class="hero-copy">Responsive browser frontend for Azure Foundry generation, concurrent CV and evaluation, and CV bounding-box overlays.</p>
+      </div>
+      <div class="hero-actions">
+        <button id="saveConfigBtn" class="secondary">Save Config</button>
+        <button id="clearConfigBtn" class="ghost">Reset</button>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Global API Settings</h2>
+      </div>
+      <div class="settings-grid">
+        <label>
+          <span>Resource Endpoint</span>
+          <input id="globalEndpoint" type="text" placeholder="https://YOUR.services.ai.azure.com">
+        </label>
+        <label>
+          <span>API Key / Bearer</span>
+          <input id="globalSecret" type="password">
+        </label>
+        <label>
+          <span>Auth</span>
+          <select id="globalAuthType"></select>
+        </label>
+        <label>
+          <span>GPT API Ver</span>
+          <input id="gptApiVersion" type="text">
+        </label>
+        <label>
+          <span>FLUX API Ver</span>
+          <input id="fluxApiVersion" type="text">
+        </label>
+        <label>
+          <span>Vision API Ver</span>
+          <input id="visionApiVersion" type="text">
+        </label>
+        <label>
+          <span>Evaluator LLM</span>
+          <input id="evalDeployment" type="text">
+        </label>
+        <label>
+          <span>Auto Eval</span>
+          <select id="autoEval"></select>
+        </label>
+        <label>
+          <span>Eval Detail</span>
+          <select id="evalDetail"></select>
+        </label>
+        <label>
+          <span>CV Enabled</span>
+          <select id="cvEnabled"></select>
+        </label>
+        <label>
+          <span>CV Endpoint</span>
+          <input id="cvEndpoint" type="text">
+        </label>
+        <label>
+          <span>CV API Key</span>
+          <input id="cvSecret" type="password">
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Models</h2>
+        <div class="panel-actions">
+          <button id="addModelBtn" class="secondary">Add</button>
+          <button id="loadSampleBtn" class="secondary">Sample</button>
+        </div>
+      </div>
+      <div class="models-header">
+        <span>Use</span>
+        <span>Model Name</span>
+        <span>Deployment Name</span>
+        <span>Actions</span>
+      </div>
+      <div id="modelsList" class="models-list"></div>
+    </section>
+
+    <section class="panel">
+      <div class="tabs">
+        <button class="tab active" data-tab="text">Text to Image</button>
+        <button class="tab" data-tab="edit">Image Edit</button>
+      </div>
+
+      <div class="tab-pane active" id="tab-text">
+        <div class="benchmark-card">
+          <div class="panel-head">
+            <h2>Benchmark Builder</h2>
+          </div>
+          <input id="benchIdea" type="text" placeholder='e.g. "Microsoft CEO delivering a speech in front of robots"'>
+          <div class="row-actions">
+            <button id="generateBenchmarkBtn">Generate Benchmark</button>
+            <button id="watchmakerBtn" class="secondary">Watchmaker</button>
+            <button id="neonBtn" class="secondary">Neon Ramen</button>
+          </div>
+          <div id="benchStatus" class="status-text"></div>
+          <div id="benchAnnotation" class="annotation-block"></div>
+        </div>
+        <label class="field-stack">
+          <span>Prompt</span>
+          <textarea id="textPrompt" rows="8"></textarea>
+        </label>
+        <div class="compact-grid">
+          <label>
+            <span>Size</span>
+            <select id="textSize"></select>
+          </label>
+          <label>
+            <span>Quality</span>
+            <select id="textQuality"></select>
+          </label>
+          <label>
+            <span>Format</span>
+            <select id="outputFormat"></select>
+          </label>
+        </div>
+        <button id="runTextBtn" class="primary">Generate and Compare</button>
+      </div>
+
+      <div class="tab-pane" id="tab-edit">
+        <div class="benchmark-card">
+          <div class="panel-head">
+            <h2>Benchmark Builder</h2>
+          </div>
+          <input id="editBenchIdea" type="text" placeholder='e.g. "turn this portrait into a cinematic magazine cover"'>
+          <div class="row-actions">
+            <button id="editGenerateBenchmarkBtn">Generate Benchmark</button>
+            <button id="editWatchmakerBtn" class="secondary">Watchmaker</button>
+            <button id="editNeonBtn" class="secondary">Neon Ramen</button>
+          </div>
+          <div id="editBenchStatus" class="status-text"></div>
+          <div id="editBenchAnnotation" class="annotation-block"></div>
+        </div>
+        <label class="field-stack">
+          <span>Edit Prompt</span>
+          <textarea id="editPrompt" rows="6"></textarea>
+        </label>
+        <div class="compact-grid">
+          <label class="upload-field">
+            <span>Source Images</span>
+            <input id="editSourceFiles" type="file" accept="image/png,image/jpeg" multiple>
+          </label>
+          <label>
+            <span>Size</span>
+            <select id="editSize"></select>
+          </label>
+        </div>
+        <div id="sourceFilesMeta" class="file-meta">No source images selected.</div>
+        <div class="edit-editor">
+          <div class="edit-preview-panel">
+            <div class="panel-head panel-head-tight">
+              <h3>Source Preview</h3>
+              <span id="editPreviewMeta" class="muted">Mask applies to the first selected image.</span>
+            </div>
+            <div id="editPreviewStage" class="edit-preview-stage">
+              <div id="editPreviewFrame" class="edit-preview-frame hidden">
+                <img id="editPreviewImage" alt="Edit source preview">
+                <canvas id="editMaskCanvas"></canvas>
+              </div>
+              <div id="editPreviewEmpty" class="edit-preview-empty">Select a source image to preview and paint a mask.</div>
+            </div>
+          </div>
+          <div class="mask-editor-panel">
+            <div class="panel-head panel-head-tight">
+              <h3>Mask Painter</h3>
+            </div>
+            <p class="mask-help">Paint the region to edit. The app will generate the PNG mask automatically.</p>
+            <label class="field-stack">
+              <span>Brush Size</span>
+              <input id="editBrushSize" type="range" min="8" max="160" step="2" value="40">
+              <span id="editBrushSizeValue" class="muted">40 px</span>
+            </label>
+            <div class="row-actions">
+              <button id="maskPaintBtn" type="button" class="secondary active-tool">Paint</button>
+              <button id="maskEraseBtn" type="button" class="ghost">Erase</button>
+              <button id="maskClearBtn" type="button" class="ghost">Clear Mask</button>
+            </div>
+            <div id="maskFileMeta" class="file-meta">No mask drawn.</div>
+          </div>
+        </div>
+        <button id="runEditBtn" class="primary">Generate Edit and Compare</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Results</h2>
+        <div class="panel-actions">
+          <button id="exportReportBtn" class="secondary" disabled>Export PPTX Report</button>
+          <button id="reEvalBtn" class="secondary">Re-Evaluate</button>
+          <span id="globalStatus" class="status-pill">Idle</span>
+        </div>
+      </div>
+      <div class="progress-rail">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+      <div id="resultsGrid" class="results-grid"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Comparison</h2>
+      </div>
+      <div id="comparisonEmpty" class="comparison-table empty">No evaluations yet.</div>
+      <div id="comparisonContent" class="comparison-content hidden">
+        <div class="radar-layout">
+          <canvas id="radarCanvas" width="480" height="480"></canvas>
+          <div id="radarLegend" class="radar-legend"></div>
+        </div>
+        <details class="comparison-details">
+          <summary>Detailed Score Table</summary>
+          <div id="comparisonTable" class="comparison-table"></div>
+        </details>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Error Log</h2>
+        <div class="panel-actions">
+          <button id="copyLogBtn" class="ghost">Copy</button>
+          <button id="clearLogBtn" class="ghost">Clear</button>
+          <span id="logBadge" class="badge">0</span>
+        </div>
+      </div>
+      <pre id="logView" class="log-view"></pre>
+    </section>
+  </div>
+
+  <template id="modelRowTemplate">
+    <div class="model-row">
+      <label class="toggle">
+        <input class="model-enabled" type="checkbox" checked>
+        <span>Use</span>
+      </label>
+      <select class="model-kind"></select>
+      <input class="model-deployment" type="text" placeholder="Deployment Name">
+      <button class="ghost remove-model-btn" type="button">Remove</button>
+    </div>
+  </template>
+
+  <template id="resultCardTemplate">
+    <article class="result-card">
+      <div class="result-head">
+        <div>
+          <h3 class="result-title"></h3>
+          <p class="result-meta"></p>
+        </div>
+        <span class="result-state">Queued...</span>
+      </div>
+      <div class="metrics-grid"></div>
+      <div class="preview-shell">
+        <img class="result-image" alt="">
+        <div class="bbox-layer"></div>
+      </div>
+      <div class="result-actions">
+        <button class="download-btn secondary" type="button">Download</button>
+        <button class="retry-btn secondary hidden" type="button">Retry</button>
+        <button class="eval-btn secondary" type="button">Eval</button>
+        <button class="bbox-btn ghost" type="button">Hide BBOX</button>
+        <button class="toggle-json-btn ghost" type="button">JSON</button>
+      </div>
+      <div class="section-block">
+        <h4>Vision</h4>
+        <div class="vision-summary muted">CV pending.</div>
+      </div>
+      <div class="section-block">
+        <h4>Evaluation</h4>
+        <div class="eval-summary muted">Evaluation pending.</div>
+        <div class="eval-details"></div>
+        <details class="eval-breakdown">
+          <summary>10-Dimension Breakdown</summary>
+          <div class="eval-bars"></div>
+        </details>
+      </div>
+      <div class="json-panel hidden">
+        <div class="json-grid">
+          <div>
+            <h4>Generation JSON</h4>
+            <pre class="json-generation"></pre>
+          </div>
+          <div>
+            <h4>CV JSON</h4>
+            <pre class="json-cv"></pre>
+          </div>
+          <div>
+            <h4>Eval JSON</h4>
+            <pre class="json-eval"></pre>
+          </div>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="/static/app.js"></script>
+
+  <div id="requestOverlay" class="request-overlay hidden">
+    <div class="request-overlay-card">
+      <div class="request-spinner"></div>
+      <h3 id="requestOverlayTitle">Sending requests...</h3>
+      <p id="requestOverlayDetail">Preparing the prompt, images, and backend run state.</p>
+    </div>
+  </div>
+</body>
+</html>

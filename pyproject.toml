@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "image-generation-model-comparison-portal"
+version = "0.1.0"
+description = "Local browser-based portal for comparing image generation models with CV analysis and concurrent evaluation."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.32.0",
+]
+
+[project.scripts]
+image-generation-model-comparison-portal = "image_generation_model_comparison_portal.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+image_generation_model_comparison_portal = ["web/*", "report_builder.mjs"]
