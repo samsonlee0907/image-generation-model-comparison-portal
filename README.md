@@ -67,15 +67,22 @@ Checks whether the generated image matches the requested artistic or photographi
 
 ## Install And Run
 
-The commands below assume a standard shell environment and a clone under your home directory.
+```powershell
+git clone https://github.com/samsonlee0907/foundry-model-upgrade-benchmark-tool.git
+cd foundry-model-upgrade-benchmark-tool
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -e .
+python -m foundry_model_upgrade_benchmark_tool.main
+```
 
 ```sh
-git clone https://github.com/samsonlee0907/image-generation-model-comparison-portal.git
-cd image-generation-model-comparison-portal
+git clone https://github.com/samsonlee0907/foundry-model-upgrade-benchmark-tool.git
+cd foundry-model-upgrade-benchmark-tool
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
-image-generation-model-comparison-portal
+python -m pip install -e .
+python -m foundry_model_upgrade_benchmark_tool.main
 ```
 
 The app starts a local server and opens in your browser automatically.
