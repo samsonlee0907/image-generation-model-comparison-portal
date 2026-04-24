@@ -12,6 +12,51 @@ Image Generation Model Comparison Portal is an application for comparing image g
 - Provides retry actions for failed image generations.
 - Exports generated images and evaluation results to PPTX.
 
+## Evaluation Dimensions
+
+Each generated image is scored on **10 dimensions**, with an integer score from **1 to 10** for each dimension. The portal also produces an **overall score**, plus short notes, strengths, weaknesses, and a summary for each result.
+
+### 1. Prompt Adherence
+Measures how well the image follows the requested scene, subject, objects, constraints, and intent from the prompt.
+
+### 2. Text Rendering
+Checks whether visible text in the image is readable, correctly spelled, and formed in a believable way.
+
+### 3. Object Counting
+Evaluates whether the image contains the correct number of requested objects, people, or repeated elements.
+
+### 4. Spatial Reasoning
+Measures whether objects appear in the right positions and relationships, such as foreground/background placement, left/right ordering, and scene layout.
+
+### 5. Anatomy
+Evaluates human or creature body coherence, including pose, gesture, limb placement, hand structure, body ratios, and visible finger counts.
+
+Note:
+For images containing people, this dimension does **not** depend heavily on face identity or facial sharpness, because safety filtering or model behavior may blur or suppress faces before analysis.
+
+### 6. Physics & Realism
+Checks whether lighting, shadows, reflections, gravity, material behavior, and scene interactions look physically believable.
+
+### 7. Color Accuracy
+Measures whether the requested palette, color relationships, and key visual tones are reproduced correctly and consistently.
+
+### 8. Fine Detail
+Evaluates sharpness and fidelity of small features such as textures, edges, materials, surface detail, and micro-structure.
+
+### 9. Composition
+Measures framing, balance, visual hierarchy, use of space, camera feel, and overall image aesthetics.
+
+### 10. Style Adherence
+Checks whether the generated image matches the requested artistic or photographic style, such as editorial realism, cinematic photography, illustration, or cyberpunk mood.
+
+## How Scoring Works
+
+- Each dimension receives a score from `1` to `10`
+- The evaluator also returns a short note for every dimension
+- An `overall_score` summarizes the image quality across all 10 dimensions
+- The result may be augmented with Azure AI Vision analysis when CV is enabled
+- Bounding boxes can be shown on top of the image when CV detects objects
+
 ## Requirements
 
 - Python 3.11 or newer
