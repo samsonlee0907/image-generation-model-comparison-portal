@@ -73,8 +73,9 @@ git clone https://github.com/samsonlee0907/foundry-model-upgrade-benchmark-tool.
 cd foundry-model-upgrade-benchmark-tool
 py -3 -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -e .
-python -m foundry_model_upgrade_benchmark_tool.main
+python -m image_generation_model_comparison_portal.main
 ```
 
 Running on Mac/Linux:
@@ -84,7 +85,7 @@ cd foundry-model-upgrade-benchmark-tool
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-python -m foundry_model_upgrade_benchmark_tool.main
+python -m image_generation_model_comparison_portal.main
 ```
 
 The app starts a local server and opens in your browser automatically.
