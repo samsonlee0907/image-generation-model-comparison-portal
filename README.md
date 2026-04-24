@@ -1,6 +1,6 @@
 # Image Generation Model Comparison Portal
 
-Image Generation Model Comparison Portal is a local browser application for comparing image generation models side by side. It supports both text-to-image and image-edit workflows, benchmark prompt generation, concurrent evaluation, bounding-box visualization, and PPTX report export.
+Image Generation Model Comparison Portal is an application for comparing image generation models side by side. It supports both text-to-image and image-edit workflows, benchmark prompt generation, concurrent evaluation, bounding-box visualization, and PPTX report export.
 
 ## What It Does
 
@@ -14,7 +14,7 @@ Image Generation Model Comparison Portal is a local browser application for comp
 
 ## Requirements
 
-- Python 3.11 or newer on Windows.
+- Python 3.11 or newer
 - Access to Microsoft Foudnry to provision image generation model endpoints
 - One evaluator deployment for benchmark generation and scoring. (e.g. GPT-5.4)
 - Optional Azure AI Vision endpoint and key if you want CV analysis from a separate resource.
