@@ -67,6 +67,7 @@ Checks whether the generated image matches the requested artistic or photographi
 
 ## Install And Run
 
+Running on Windows:
 ```powershell
 git clone https://github.com/samsonlee0907/foundry-model-upgrade-benchmark-tool.git
 cd foundry-model-upgrade-benchmark-tool
@@ -76,6 +77,7 @@ python -m pip install -e .
 python -m foundry_model_upgrade_benchmark_tool.main
 ```
 
+Running on Mac/Linux:
 ```sh
 git clone https://github.com/samsonlee0907/foundry-model-upgrade-benchmark-tool.git
 cd foundry-model-upgrade-benchmark-tool
