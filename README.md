@@ -26,7 +26,7 @@ The commands below assume a standard shell environment and a clone under your ho
 
 ```sh
 cd ~
-git clone <repository-url> image-generation-model-comparison-portal
+git clone https://github.com/samsonlee0907/image-generation-model-comparison-portal.git
 cd ~/image-generation-model-comparison-portal
 python3 -m venv .venv
 source .venv/bin/activate
