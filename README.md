@@ -25,7 +25,6 @@ Image Generation Model Comparison Portal is a local browser application for comp
 The commands below assume a standard shell environment and a clone under your home directory.
 
 ```sh
-cd ~
 git clone https://github.com/samsonlee0907/image-generation-model-comparison-portal.git
 cd ~/image-generation-model-comparison-portal
 python3 -m venv .venv
