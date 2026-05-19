@@ -143,7 +143,6 @@ After a run, the portal shows:
 - bounding box overlays
 - retry actions for failed runs
 ![Text to Image Workflow Result](img/text-to-image-workflow-result.png)
-
 ![Results Analysis](img/results-analysis.png)
 
 ## PPTX Reporting
