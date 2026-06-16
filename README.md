@@ -16,10 +16,11 @@ such as `MAI-Image-2.5` work without any code change.
 - Scores image quality on a **benchmark-aligned, data-driven** metric set (GenEval / T2I-CompBench / DPG-Bench axes).
 - Provides a separate **Content Safety** probe that observes each model's baseline gating behavior across severity tiers (does the model produce an image or block the request).
 - Draws bounding boxes from CV output and lets users toggle them on or off.
-- Provides retry actions for failed image generations.
+- Provides retry actions for failed image generations, plus a per-cell **Retry** on individual content-safety error cards.
 - Exports generated images and evaluation results to PPTX.
 - Exports generated images plus a `results.json` manifest to a local folder for notebook analysis.
 - Exports content-safety probe outcomes (gating results + ungated images) to a `safety-results.json` manifest.
+- Aggregates exported generation, image-edit, and **content-safety** runs into one self-contained HTML comparison report via `tools/aggregate_report.py`.
 - Retries rate-limited (HTTP 429, 60s backoff) and transient (502/503/504, dropped connections, timeouts; short backoff) requests automatically.
 
 ## Documentation
