@@ -205,10 +205,14 @@ class MainWindow(QMainWindow):
         buttons = QHBoxLayout()
         self.gen_bench_btn = QPushButton("Generate Benchmark")
         self.watchmaker_btn = QPushButton("Watchmaker")
-        self.neon_btn = QPushButton("Neon Ramen")
+        self.cartoon3d_btn = QPushButton("3D Cartoon")
+        self.storyboard_btn = QPushButton("Comic Storyboard")
+        self.data_chart_btn = QPushButton("Report Page")
         buttons.addWidget(self.gen_bench_btn)
         buttons.addWidget(self.watchmaker_btn)
-        buttons.addWidget(self.neon_btn)
+        buttons.addWidget(self.cartoon3d_btn)
+        buttons.addWidget(self.storyboard_btn)
+        buttons.addWidget(self.data_chart_btn)
         buttons.addStretch(1)
         self.bench_status = QLabel("")
         self.bench_annotation = QTextEdit()
@@ -244,7 +248,9 @@ class MainWindow(QMainWindow):
 
         self.gen_bench_btn.clicked.connect(self._generate_benchmark)
         self.watchmaker_btn.clicked.connect(partial(self._load_benchmark_preset, "watchmaker"))
-        self.neon_btn.clicked.connect(partial(self._load_benchmark_preset, "neon_ramen"))
+        self.cartoon3d_btn.clicked.connect(partial(self._load_benchmark_preset, "cartoon_3d"))
+        self.storyboard_btn.clicked.connect(partial(self._load_benchmark_preset, "storyboard_comic"))
+        self.data_chart_btn.clicked.connect(partial(self._load_benchmark_preset, "data_chart"))
         self.run_text_btn.clicked.connect(lambda: self._start_run("text"))
         return page
 

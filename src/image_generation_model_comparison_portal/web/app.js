@@ -3,6 +3,9 @@ const state = {
   runId: null,
   run: null,
   pollTimer: null,
+  safetyRunId: null,
+  safetyRun: null,
+  safetyPollTimer: null,
   promptGuidance: {
     text: { title: "", dimensionMap: {} },
     edit: { title: "", dimensionMap: {} },
@@ -27,23 +30,21 @@ const state = {
     "rgba(120, 160, 255, ",
     "rgba(157, 118, 255, ",
   ],
-  modelOptions: [
-    ["gpt-image-1", "GPT-Image-1"],
-    ["gpt-image-1.5", "GPT-Image-1.5"],
-    ["gpt-image-2", "GPT-Image-2"],
-    ["flux-2-pro", "FLUX.2-pro"],
-    ["flux-2-flex", "FLUX.2-flex"],
-    ["flux-kontext-pro", "FLUX.1-Kontext-pro"],
-    ["flux-pro-1.1", "FLUX-1.1-pro"],
-    ["mai-image-2", "MAI-Image-2"],
-    ["mai-image-2e", "MAI-Image-2e"],
-  ],
 };
 
 const byId = (id) => document.getElementById(id);
 
-function modelLabel(kind) {
-  return state.modelOptions.find(([value]) => value === kind)?.[1] || kind;
+function providers() {
+  return state.bootstrap?.providers || [];
+}
+
+function providerById(family) {
+  const list = providers();
+  return list.find((item) => item.id === family) || list[0] || null;
+}
+
+function familyLabel(family) {
+  return providerById(family)?.label || family;
 }
 
 async function api(path, options = {}) {
@@ -122,23 +123,45 @@ function renderModels(models) {
 function buildModelRow(model = {}) {
   const node = byId("modelRowTemplate").content.firstElementChild.cloneNode(true);
   const enabled = node.querySelector(".model-enabled");
-  const kind = node.querySelector(".model-kind");
+  const nameInput = node.querySelector(".model-name");
+  const family = node.querySelector(".model-family");
   const deployment = node.querySelector(".model-deployment");
-  state.modelOptions.forEach(([value, label]) => {
+  const note = node.querySelector(".model-family-note");
+  const advanced = node.querySelector(".model-advanced");
+  const endpoint = node.querySelector(".model-endpoint");
+  const apiVersion = node.querySelector(".model-api-version");
+  const path = node.querySelector(".model-path");
+  const modelId = node.querySelector(".model-id");
+
+  providers().forEach((provider) => {
     const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    kind.appendChild(option);
+    option.value = provider.id;
+    option.textContent = provider.label;
+    family.appendChild(option);
   });
+
   enabled.checked = model.enabled !== false;
-  kind.value = model.kind || "gpt-image-1";
-  deployment.value = model.deployment || model.name || "";
-  let priorLabel = modelLabel(kind.value);
-  kind.addEventListener("change", () => {
-    if (!deployment.value.trim() || deployment.value.trim() === priorLabel) {
-      deployment.value = modelLabel(kind.value);
+  family.value = model.family || providers()[0]?.id || "gpt-image";
+  deployment.value = model.deployment || "";
+  nameInput.value = model.name && model.name !== model.deployment ? model.name : "";
+  endpoint.value = model.endpoint || "";
+  apiVersion.value = model.api_version || "";
+  path.value = model.path || "";
+  modelId.value = model.model_id || "";
+
+  const applyFamily = () => {
+    const provider = providerById(family.value);
+    if (provider) {
+      deployment.placeholder = provider.identifier_placeholder || "Deployment / model name";
+      const editNote = provider.supports_edit ? "" : " · Image edit not supported (falls back to text-to-image).";
+      note.textContent = `${provider.description || ""}${editNote}`;
     }
-    priorLabel = modelLabel(kind.value);
+  };
+  applyFamily();
+  family.addEventListener("change", applyFamily);
+
+  node.querySelector(".model-advanced-btn").addEventListener("click", () => {
+    advanced.classList.toggle("hidden");
   });
   node.querySelector(".remove-model-btn").addEventListener("click", () => node.remove());
   return node;
@@ -147,31 +170,26 @@ function buildModelRow(model = {}) {
 function collectModels() {
   const raw = [...document.querySelectorAll(".model-row")].map((row) => ({
     enabled: row.querySelector(".model-enabled").checked,
-    kind: row.querySelector(".model-kind").value,
+    family: row.querySelector(".model-family").value,
     deployment: row.querySelector(".model-deployment").value.trim(),
+    nameInput: row.querySelector(".model-name").value.trim(),
+    endpoint: row.querySelector(".model-endpoint").value.trim(),
+    api_version: row.querySelector(".model-api-version").value.trim(),
+    path: row.querySelector(".model-path").value.trim(),
+    model_id: row.querySelector(".model-id").value.trim(),
   }));
-  const counts = new Map();
-  raw.forEach((model) => {
-    const label = modelLabel(model.kind);
-    counts.set(label, (counts.get(label) || 0) + 1);
-  });
   const usedNames = new Set();
   return raw.map((model, index) => {
-    const label = modelLabel(model.kind);
-    let name = label;
-    if ((counts.get(label) || 0) > 1) {
-      name = `${label} · ${model.deployment || index + 1}`;
-    }
+    const base = model.nameInput || model.deployment || `${familyLabel(model.family)} ${index + 1}`;
+    let name = base;
     let suffix = 2;
     while (usedNames.has(name)) {
-      name = `${label} · ${model.deployment || suffix}`;
+      name = `${base} · ${suffix}`;
       suffix += 1;
     }
     usedNames.add(name);
-    return {
-      ...model,
-      name,
-    };
+    const { nameInput, ...rest } = model;
+    return { ...rest, name };
   });
 }
 
@@ -543,6 +561,7 @@ async function startRun(mode) {
   showRequestOverlay("Sending requests...", "Preparing the prompt, images, and backend run state.");
   setRunButtonsDisabled(true);
   byId("exportReportBtn").disabled = true;
+  byId("exportImagesBtn").disabled = true;
   try {
     const payload = {
       config: collectConfig(),
@@ -604,10 +623,27 @@ async function refreshRun() {
   }
 }
 
+function modeLabel(mode) {
+  return (
+    {
+      text: "Text-to-Image",
+      edit: "Image Edit",
+    }[mode] || "Results"
+  );
+}
+
 function renderRun(run) {
   setStatus(`${run.progress.label} ${run.progress.done}/${run.progress.total}`);
   setProgress(run.progress.done, run.progress.total);
+  const heading = byId("resultsHeading");
+  if (heading) {
+    heading.textContent = `Results \u2014 ${modeLabel(run.mode)}`;
+  }
   byId("exportReportBtn").disabled = !canExportReport(run) || run.status === "running";
+  const exportImagesBtn = byId("exportImagesBtn");
+  if (exportImagesBtn) {
+    exportImagesBtn.disabled = !hasGeneratedImages(run) || run.status === "running";
+  }
   const grid = byId("resultsGrid");
   if (!grid.children.length) {
     run.order.forEach((name) => grid.appendChild(buildResultCard(run.results[name])));
@@ -615,6 +651,13 @@ function renderRun(run) {
   run.order.forEach((name) => updateResultCard(grid.querySelector(`[data-model="${cssEscape(name)}"]`), run.results[name]));
   renderComparison(run);
   renderLog(run.errorLog || []);
+}
+
+function hasGeneratedImages(run) {
+  if (!run || !run.results) {
+    return false;
+  }
+  return (run.order || []).some((name) => run.results[name]?.generation?.imageDataUrl);
 }
 
 function buildResultCard(result) {
@@ -635,6 +678,18 @@ function buildResultCard(result) {
     node.querySelector(".json-panel").classList.toggle("hidden");
   });
   updateBboxButton(node);
+  // Keep bounding boxes glued to the image as the card/page layout reflows
+  // (sibling cards finishing, panels expanding, responsive resizes).
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(() => {
+      if (typeof node._redrawBoxes === "function") {
+        node._redrawBoxes();
+      }
+    });
+    observer.observe(node.querySelector(".preview-shell"));
+    observer.observe(node.querySelector(".result-image"));
+    node._bboxObserver = observer;
+  }
   return node;
 }
 
@@ -643,9 +698,9 @@ function updateResultCard(node, result) {
     return;
   }
   node.querySelector(".result-title").textContent = result.model.name;
-  const metaBits = [`${result.model.kind}`, result.model.deployment || "-"];
+  const metaBits = [`${familyLabel(result.model.family || result.model.kind)}`, result.model.deployment || "-"];
   if (result.generation?.editFallbackUsed) {
-    metaBits.push("MAI edit fallback");
+    metaBits.push("Edit not supported · text fallback");
   }
   if (state.run?.promptGuidance?.usedEnrichment) {
     metaBits.push("Prompt enriched");
@@ -693,6 +748,7 @@ function renderPreview(node, result) {
     image.classList.remove("has-image");
     image.removeAttribute("src");
     overlay.innerHTML = "";
+    node._redrawBoxes = null;
     return;
   }
   if (image.src !== result.generation.imageDataUrl) {
@@ -701,29 +757,65 @@ function renderPreview(node, result) {
   image.classList.add("has-image");
   const renderBoxes = () => {
     overlay.innerHTML = "";
-    if (!showBbox || !result.cv?.objects?.length || !image.naturalWidth || !image.naturalHeight) {
+    const visible = node.dataset.bboxVisible !== "false";
+    overlay.classList.toggle("hidden", !visible);
+    if (!visible || !result.cv?.objects?.length || !image.naturalWidth || !image.naturalHeight) {
       return;
     }
+    // Position boxes against the *actual rendered image rectangle* (not the
+    // container), so they track the image wherever layout places it — even when
+    // the page reflows, sibling cards grow, or the window resizes.
     const host = overlay.getBoundingClientRect();
-    const imageRatio = Math.min(host.width / image.naturalWidth, host.height / image.naturalHeight);
-    const drawWidth = image.naturalWidth * imageRatio;
-    const drawHeight = image.naturalHeight * imageRatio;
-    const offsetLeft = (host.width - drawWidth) / 2;
-    const offsetTop = (host.height - drawHeight) / 2;
+    const imageRect = image.getBoundingClientRect();
+    const drawWidth = imageRect.width;
+    const drawHeight = imageRect.height;
+    if (!drawWidth || !drawHeight) {
+      return;
+    }
+    const offsetLeft = imageRect.left - host.left;
+    const offsetTop = imageRect.top - host.top;
+    const imageRight = offsetLeft + drawWidth;
+    const imageBottom = offsetTop + drawHeight;
+    const labels = [];
     result.cv.objects.forEach((box) => {
       const div = document.createElement("div");
       div.className = "bbox";
-      div.style.left = `${offsetLeft + (box.x / image.naturalWidth) * drawWidth}px`;
-      div.style.top = `${offsetTop + (box.y / image.naturalHeight) * drawHeight}px`;
+      const boxLeft = offsetLeft + (box.x / image.naturalWidth) * drawWidth;
+      const boxTop = offsetTop + (box.y / image.naturalHeight) * drawHeight;
+      div.style.left = `${boxLeft}px`;
+      div.style.top = `${boxTop}px`;
       div.style.width = `${(box.w / image.naturalWidth) * drawWidth}px`;
       div.style.height = `${(box.h / image.naturalHeight) * drawHeight}px`;
       const label = document.createElement("span");
       label.className = "bbox-label";
       label.textContent = `${box.label} ${Math.round(box.confidence * 100)}%`;
+      // The label sits above the box by default; if there isn't room above it
+      // (box hugging the image top), drop it just inside the box top instead so
+      // it isn't clipped by the preview frame.
+      if (boxTop - offsetTop < 30) {
+        label.classList.add("inside");
+      }
       div.appendChild(label);
       overlay.appendChild(div);
+      labels.push({ label, boxLeft });
+    });
+    // Clamp labels that would spill past the left/right edge of the image so the
+    // full text stays visible within the frame.
+    labels.forEach(({ label, boxLeft }) => {
+      const width = label.offsetWidth;
+      let left = 0;
+      if (boxLeft + width > imageRight) {
+        left = imageRight - (boxLeft + width) - 2;
+      }
+      if (boxLeft + left < offsetLeft) {
+        left = offsetLeft - boxLeft + 2;
+      }
+      if (left !== 0) {
+        label.style.left = `${left}px`;
+      }
     });
   };
+  node._redrawBoxes = renderBoxes;
   if (image.complete) {
     renderBoxes();
   } else {
@@ -863,6 +955,31 @@ async function retryGeneration(modelName) {
   }
 }
 
+async function exportImages() {
+  if (!state.runId) {
+    return;
+  }
+  showRequestOverlay("Exporting images + JSON...", "Writing generated images to a local folder and a results.json manifest.");
+  byId("exportImagesBtn").disabled = true;
+  try {
+    const payload = await api(`/api/runs/${state.runId}/export`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const message = `Exported ${payload.imageCount} image(s) + results.json to:\n${payload.folder}`;
+    setStatus(`Exported ${payload.imageCount} image(s) to ${payload.folder}`);
+    alert(message);
+  } catch (error) {
+    setStatus(error.message);
+    alert(error.message);
+  } finally {
+    hideRequestOverlay();
+    if (state.run) {
+      byId("exportImagesBtn").disabled = !hasGeneratedImages(state.run) || state.run.status === "running";
+    }
+  }
+}
+
 async function exportReport() {
   if (!state.runId) {
     return;
@@ -944,8 +1061,9 @@ function renderRadar(entries) {
   const cx = width / 2;
   const cy = height / 2;
   const radius = Math.min(cx, cy) - 58;
-  const labels = ["Prompt", "Text", "Count", "Spatial", "Anatomy", "Physics", "Color", "Detail", "Comp.", "Style"];
   const dimKeys = Object.keys(state.bootstrap.dimLabels);
+  const shortMap = state.bootstrap.dimShort || {};
+  const labels = dimKeys.map((key) => shortMap[key] || state.bootstrap.dimLabels[key] || key);
   ctx.clearRect(0, 0, width, height);
 
   for (let level = 1; level <= 5; level += 1) {
@@ -1017,6 +1135,231 @@ function renderRadar(entries) {
   `).join("");
 }
 
+function safetyLevelLabel(level) {
+  return Number(level) >= 6 ? "L5+" : `L${level}`;
+}
+
+function renderSafetyPrompts() {
+  const list = byId("safetyPromptList");
+  if (!list) {
+    return;
+  }
+  const prompts = state.bootstrap?.safetyPrompts || [];
+  const byCategory = new Map();
+  prompts.forEach((prompt) => {
+    if (!byCategory.has(prompt.category)) {
+      byCategory.set(prompt.category, []);
+    }
+    byCategory.get(prompt.category).push(prompt);
+  });
+  list.innerHTML = "";
+  byCategory.forEach((items, category) => {
+    const group = document.createElement("div");
+    group.className = "safety-group";
+    const heading = document.createElement("h3");
+    heading.textContent = category;
+    group.appendChild(heading);
+    items
+      .sort((a, b) => a.level - b.level)
+      .forEach((prompt) => {
+        const label = document.createElement("label");
+        label.className = "safety-prompt-item";
+        const techniqueLine =
+          prompt.technique && prompt.technique !== "Direct request"
+            ? `<small class="safety-technique">Technique: ${escapeHtml(prompt.technique)}</small>`
+            : "";
+        label.innerHTML = `
+          <input type="checkbox" class="safety-prompt-check" value="${escapeHtml(prompt.id)}" checked>
+          <span class="safety-level">${safetyLevelLabel(prompt.level)}</span>
+          <span class="safety-prompt-text">
+            <strong>${escapeHtml(prompt.label)}</strong>
+            <em>${escapeHtml(prompt.prompt)}</em>
+            ${techniqueLine}
+            <small>Expected: ${escapeHtml(prompt.expectation)}</small>
+          </span>`;
+        group.appendChild(label);
+      });
+    list.appendChild(group);
+  });
+}
+
+function selectedSafetyPromptIds() {
+  return [...document.querySelectorAll(".safety-prompt-check:checked")].map((input) => input.value);
+}
+
+async function startSafetyRun() {
+  const models = enabledModels();
+  if (!models.length) {
+    alert("Enable at least one model.");
+    return;
+  }
+  const promptIds = selectedSafetyPromptIds();
+  if (!promptIds.length) {
+    alert("Select at least one safety prompt.");
+    return;
+  }
+  showRequestOverlay("Starting content safety probe...", "Sending escalating-severity prompts to each model.");
+  byId("runSafetyBtn").disabled = true;
+  try {
+    const response = await api("/api/safety", {
+      method: "POST",
+      body: JSON.stringify({
+        config: collectConfig(),
+        models,
+        promptIds,
+      }),
+    });
+    state.safetyRunId = response.runId;
+    state.safetyRun = null;
+    byId("safetyPanel").classList.remove("hidden");
+    byId("safetyGrid").innerHTML = "";
+    byId("safetyExportBtn").disabled = true;
+    startSafetyPolling();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    hideRequestOverlay();
+    byId("runSafetyBtn").disabled = false;
+  }
+}
+
+function startSafetyPolling() {
+  stopSafetyPolling();
+  refreshSafetyRun();
+  state.safetyPollTimer = window.setInterval(refreshSafetyRun, 1500);
+}
+
+function stopSafetyPolling() {
+  if (state.safetyPollTimer) {
+    window.clearInterval(state.safetyPollTimer);
+    state.safetyPollTimer = null;
+  }
+}
+
+async function exportSafetyResults() {
+  if (!state.safetyRunId) {
+    return;
+  }
+  showRequestOverlay("Exporting safety results + JSON...", "Writing gating outcomes and any ungated images to a local folder and a safety-results.json manifest.");
+  byId("safetyExportBtn").disabled = true;
+  try {
+    const payload = await api(`/api/runs/${state.safetyRunId}/export`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const message = `Exported ${payload.imageCount} ungated image(s) + safety-results.json to:\n${payload.folder}`;
+    setStatus(`Exported safety results to ${payload.folder}`);
+    alert(message);
+  } catch (error) {
+    setStatus(error.message);
+    alert(error.message);
+  } finally {
+    hideRequestOverlay();
+    if (state.safetyRun) {
+      byId("safetyExportBtn").disabled = !hasSafetyOutcomes(state.safetyRun);
+    }
+  }
+}
+
+function hasSafetyOutcomes(run) {
+  if (!run || !Array.isArray(run.order)) {
+    return false;
+  }
+  return run.order.some((key) => {
+    const cell = run.results[key];
+    return cell && (cell.safety || cell.error);
+  });
+}
+
+async function refreshSafetyRun() {
+  if (!state.safetyRunId) {
+    return;
+  }
+  const run = await api(`/api/runs/${state.safetyRunId}`);
+  state.safetyRun = run;
+  renderSafetyRun(run);
+  if (run.status === "complete") {
+    stopSafetyPolling();
+  }
+}
+
+function safetyOutcomeBadge(safety) {
+  if (!safety) {
+    return '<span class="safety-badge pending">Pending</span>';
+  }
+  if (safety.outcome === "blocked") {
+    return '<span class="safety-badge gated">Gated by model</span>';
+  }
+  if (safety.outcome === "generated") {
+    return '<span class="safety-badge produced">Produced image</span>';
+  }
+  return '<span class="safety-badge error">Error</span>';
+}
+
+function renderSafetyRun(run) {
+  const pill = byId("safetyStatus");
+  pill.textContent = `${run.progress.label} ${run.progress.done}/${run.progress.total}`;
+  byId("safetyProgressFill").style.width = run.progress.total
+    ? `${Math.round((run.progress.done / run.progress.total) * 100)}%`
+    : "0%";
+  byId("safetyExportBtn").disabled = !hasSafetyOutcomes(run);
+  const promptsById = new Map((run.prompts || []).map((prompt) => [prompt.id, prompt]));
+  const grid = byId("safetyGrid");
+  grid.innerHTML = "";
+  run.order.forEach((key) => {
+    const cell = run.results[key];
+    const prompt = promptsById.get(cell.promptId) || {};
+    const safety = cell.safety;
+    const card = document.createElement("article");
+    card.className = "safety-card";
+    const image = safety && safety.image
+      ? `<img class="safety-thumb" src="${safety.image}" alt="Generated image">`
+      : '<div class="safety-thumb placeholder"></div>';
+    const detail = safety
+      ? `${safety.blockReason ? `<p class="safety-reason">${escapeHtml(safety.blockReason)}</p>` : ""}`
+      : `<p class="safety-reason">${escapeHtml(cell.status)}</p>`;
+    const hasError = (safety && safety.outcome === "error") || Boolean(cell.error);
+    const retryBtn = hasError
+      ? `<div class="safety-card-foot"><button class="secondary safety-retry-btn" data-key="${escapeHtml(key)}"${run.status === "running" ? " disabled" : ""}>Retry</button></div>`
+      : "";
+    card.innerHTML = `
+      <div class="safety-card-head">
+        <div>
+          <h3>${escapeHtml(cell.model.name)}</h3>
+          <p class="safety-meta">${escapeHtml(prompt.category || "")} · ${prompt.level ? safetyLevelLabel(prompt.level) : "L?"} · ${escapeHtml(prompt.label || "")}</p>
+        </div>
+        ${safetyOutcomeBadge(safety)}
+      </div>
+      <p class="safety-prompt-line">${escapeHtml(prompt.prompt || "")}</p>
+      ${image}
+      ${detail}
+      ${retryBtn}`;
+    grid.appendChild(card);
+  });
+  grid.querySelectorAll(".safety-retry-btn").forEach((btn) => {
+    btn.addEventListener("click", () => retrySafetyCell(btn.dataset.key));
+  });
+}
+
+async function retrySafetyCell(cellKey) {
+  if (!state.safetyRunId || !cellKey) {
+    return;
+  }
+  showRequestOverlay("Retrying safety probe...", "Re-sending this prompt to the model.");
+  try {
+    await api(`/api/runs/${state.safetyRunId}/safety-retry`, {
+      method: "POST",
+      body: JSON.stringify({ config: collectConfig(), cellKey }),
+    });
+    startSafetyPolling();
+  } catch (error) {
+    setStatus(error.message);
+    alert(error.message);
+  } finally {
+    hideRequestOverlay();
+  }
+}
+
 function bindEvents() {
   byId("addModelBtn").addEventListener("click", () => {
     byId("modelsList").appendChild(buildModelRow());
@@ -1028,14 +1371,27 @@ function bindEvents() {
   });
   byId("clearConfigBtn").addEventListener("click", () => loadConfig(state.bootstrap.config));
   byId("watchmakerBtn").addEventListener("click", () => renderPresetForMode("watchmaker", "text"));
-  byId("neonBtn").addEventListener("click", () => renderPresetForMode("neon_ramen", "text"));
+  byId("cartoon3dBtn").addEventListener("click", () => renderPresetForMode("cartoon_3d", "text"));
+  byId("storyboardBtn").addEventListener("click", () => renderPresetForMode("storyboard_comic", "text"));
+  byId("dataChartBtn").addEventListener("click", () => renderPresetForMode("data_chart", "text"));
   byId("generateBenchmarkBtn").addEventListener("click", () => generateBenchmark("text"));
-  byId("editWatchmakerBtn").addEventListener("click", () => renderPresetForMode("watchmaker", "edit"));
-  byId("editNeonBtn").addEventListener("click", () => renderPresetForMode("neon_ramen", "edit"));
+  byId("editStyleChangeBtn").addEventListener("click", () => renderPresetForMode("edit_style_change", "edit"));
+  byId("editAddTextBtn").addEventListener("click", () => renderPresetForMode("edit_add_text", "edit"));
+  byId("editObjectBgBtn").addEventListener("click", () => renderPresetForMode("edit_object_background", "edit"));
+  byId("editBusinessAttireBtn").addEventListener("click", () => renderPresetForMode("edit_business_attire", "edit"));
   byId("editGenerateBenchmarkBtn").addEventListener("click", () => generateBenchmark("edit"));
   byId("runTextBtn").addEventListener("click", () => startRun("text"));
   byId("runEditBtn").addEventListener("click", () => startRun("edit"));
+  byId("runSafetyBtn").addEventListener("click", () => startSafetyRun());
+  byId("safetyExportBtn").addEventListener("click", () => exportSafetyResults());
+  byId("safetySelectAllBtn").addEventListener("click", () => {
+    document.querySelectorAll(".safety-prompt-check").forEach((input) => { input.checked = true; });
+  });
+  byId("safetyClearBtn").addEventListener("click", () => {
+    document.querySelectorAll(".safety-prompt-check").forEach((input) => { input.checked = false; });
+  });
   byId("exportReportBtn").addEventListener("click", () => exportReport());
+  byId("exportImagesBtn").addEventListener("click", () => exportImages());
   byId("reEvalBtn").addEventListener("click", () => triggerEvaluation(null));
   byId("copyLogBtn").addEventListener("click", () => navigator.clipboard.writeText(byId("logView").textContent));
   byId("clearLogBtn").addEventListener("click", () => {
@@ -1066,6 +1422,7 @@ async function boot() {
   bindEvents();
   state.bootstrap = await api("/api/bootstrap");
   loadConfig(state.bootstrap.config);
+  renderSafetyPrompts();
   renderBenchAnnotation("Benchmark", {}, "text");
   renderBenchAnnotation("Benchmark", {}, "edit");
   setMaskMode("paint");
@@ -1074,6 +1431,7 @@ async function boot() {
 }
 
 window.addEventListener("beforeunload", stopPolling);
+window.addEventListener("beforeunload", stopSafetyPolling);
 window.addEventListener("resize", () => {
   if (state.run) {
     renderComparison(state.run);

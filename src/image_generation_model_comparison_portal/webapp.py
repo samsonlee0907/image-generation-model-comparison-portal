@@ -12,6 +12,7 @@ import uuid
 import webbrowser
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,7 +20,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from image_generation_model_comparison_portal.config import load_config, save_config
-from image_generation_model_comparison_portal.models import AppConfig, BENCHMARK_PRESETS, DIM_LABELS, ModelConfig, sample_models
+from image_generation_model_comparison_portal.models import AppConfig, BENCHMARK_PRESETS, DIM_LABELS, DIM_SHORT, ModelConfig, sample_models
+from image_generation_model_comparison_portal.providers import provider_options
+from image_generation_model_comparison_portal.safety import safety_prompts
 from image_generation_model_comparison_portal.services import ApiClient, image_data_url
 
 
@@ -40,6 +43,68 @@ def _to_plain(value: Any) -> Any:
     return value
 
 
+def _safe_filename(name: str) -> str:
+    cleaned = "".join(c if (c.isalnum() or c in "-_") else "-" for c in (name or "").strip())
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    return cleaned.strip("-").lower()
+
+
+_SENSITIVE_KEY_MARKERS = (
+    "secret",
+    "key",
+    "token",
+    "password",
+    "passwd",
+    "credential",
+    "bearer",
+    "authorization",
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    lowered = (key or "").lower()
+    return any(marker in lowered for marker in _SENSITIVE_KEY_MARKERS)
+
+
+def _redact_config(value: Any) -> Any:
+    """Recursively redact secret-bearing fields from config-like data.
+
+    Any non-empty string stored under a key whose name suggests a credential
+    (``global_secret``, ``cv_secret``, ``apiKey``, ``token``, ``password`` ...)
+    is replaced with a placeholder so exported JSON never contains live secrets.
+    Lists are traversed too (e.g. the per-model config rows). Endpoints,
+    deployments, and API versions are intentionally kept since they are not
+    credentials and are useful for downstream notebook analysis.
+    """
+
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if isinstance(item, str) and item and _is_sensitive_key(str(key)):
+                redacted[key] = "***redacted***"
+            else:
+                redacted[key] = _redact_config(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_config(item) for item in value]
+    return value
+
+
+def _retry_status_text(reason: str, wait: int, attempt: int, total: int) -> str:
+    """User-facing status while a request is being retried.
+
+    ``reason`` is ``"rate_limit"`` (per-minute throttle) or ``"transient"``
+    (connection drop / 5xx that usually clears in seconds).
+    """
+
+    if reason == "transient":
+        label = "Service busy, retrying"
+    else:
+        label = "Rate limited, waiting"
+    return f"{label} {wait}s ({attempt}/{total})"
+
+
 class RunManager:
     def __init__(self) -> None:
         self.executor = ThreadPoolExecutor(max_workers=12)
@@ -58,7 +123,10 @@ class RunManager:
             "config": config.to_dict(),
             "sampleModels": [model.to_dict() for model in sample_models()],
             "dimLabels": DIM_LABELS,
+            "dimShort": DIM_SHORT,
             "presets": BENCHMARK_PRESETS,
+            "providers": provider_options(),
+            "safetyPrompts": safety_prompts(),
         }
 
     def save_config_payload(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -76,7 +144,7 @@ class RunManager:
         prompt = str(payload["prompt"]).strip()
         if not prompt:
             raise RuntimeError("Prompt required.")
-        models = [ModelConfig(**item) for item in payload["models"]]
+        models = [ModelConfig.from_dict(item) for item in payload["models"]]
         if not models:
             raise RuntimeError("Enable at least one model.")
         temp_dir = tempfile.mkdtemp(prefix="image-generation-model-comparison-portal-")
@@ -169,7 +237,7 @@ class RunManager:
             result["generation"] = None
             result["cv"] = None
             result["evaluation"] = None
-            model = ModelConfig(**result["model"])
+            model = ModelConfig.from_dict(result["model"])
         config = AppConfig.from_dict(config_data)
         client = ApiClient(config)
         self._submit_generation(run_id, client, model)
@@ -232,6 +300,204 @@ class RunManager:
             raise FileNotFoundError(run_id)
         return path
 
+    def export_results(self, run_id: str) -> dict[str, Any]:
+        """Write generated images to a local folder plus a single results.json.
+
+        Layout (under ``portal-exports/`` at the repo root)::
+
+            portal-exports/<timestamp>-<runId>/
+                results.json          # run metadata + per-result records
+                images/<model>.png    # one file per produced image
+
+        The JSON keeps each result's text fields (prompt, metrics, evaluation
+        scores, status) and a relative ``imagePath`` so a downstream notebook
+        can join images to their scores across multiple iterations.
+        """
+
+        with self.lock:
+            if run_id not in self.runs:
+                raise KeyError(run_id)
+            run = _to_plain(self.runs[run_id])
+
+        if run.get("kind") == "safety":
+            return self._export_safety_results(run_id, run)
+
+        if not any((run["results"].get(name) or {}).get("generation") for name in run["order"]):
+            raise RuntimeError("No generated images are available to export.")
+
+        repo_root = Path(__file__).resolve().parents[2]
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        export_dir = repo_root / "portal-exports" / f"{stamp}-{run_id}"
+        images_dir = export_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        used_names: set[str] = set()
+        records: list[dict[str, Any]] = []
+        image_count = 0
+        for name in run["order"]:
+            result = dict(run["results"].get(name) or {})
+            generation = result.get("generation") or {}
+            image_path_rel: str | None = None
+            data_url = generation.get("imageDataUrl") or ""
+            if data_url and "," in data_url:
+                header, raw_b64 = data_url.split(",", 1)
+                suffix = ".jpg" if ("jpeg" in header or "jpg" in header) else ".png"
+                file_stem = _safe_filename(name) or f"model-{len(records) + 1}"
+                candidate = file_stem
+                counter = 2
+                while candidate in used_names:
+                    candidate = f"{file_stem}-{counter}"
+                    counter += 1
+                used_names.add(candidate)
+                file_name = f"{candidate}{suffix}"
+                (images_dir / file_name).write_bytes(base64.b64decode(raw_b64))
+                image_path_rel = f"images/{file_name}"
+                image_count += 1
+
+            # Trim the inlined base64 from the JSON; the file on disk replaces it.
+            trimmed_generation = {k: v for k, v in generation.items() if k != "imageDataUrl"}
+            records.append(
+                {
+                    "model": _redact_config(result.get("model") or {}),
+                    "status": result.get("status"),
+                    "error": result.get("error"),
+                    "imagePath": image_path_rel,
+                    "imageMimeType": generation.get("mimeType"),
+                    "metrics": result.get("metrics"),
+                    "generation": trimmed_generation or None,
+                    "cv": result.get("cv"),
+                    "evaluation": result.get("evaluation"),
+                }
+            )
+
+        manifest = {
+            "schemaVersion": 1,
+            "exportedAt": datetime.now().isoformat(timespec="seconds"),
+            "runId": run_id,
+            "mode": run.get("mode"),
+            "modeLabel": {"text": "Text-to-Image", "edit": "Image Edit"}.get(run.get("mode"), run.get("mode")),
+            "prompt": run.get("prompt"),
+            "effectivePrompt": run.get("effectivePrompt"),
+            "promptGuidance": run.get("promptGuidance"),
+            "config": _redact_config(run.get("config") or {}),
+            "results": records,
+        }
+        json_path = export_dir / "results.json"
+        json_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return {
+            "ok": True,
+            "folder": str(export_dir),
+            "jsonPath": str(json_path),
+            "imageCount": image_count,
+        }
+
+    def _export_safety_results(self, run_id: str, run: dict[str, Any]) -> dict[str, Any]:
+        """Write content-safety probe outcomes to a local folder + JSON manifest.
+
+        Layout (under ``portal-exports/`` at the repo root)::
+
+            portal-exports/safety-<timestamp>-<runId>/
+                safety-results.json   # per-model x per-prompt outcomes
+                images/<model>__<promptId>.png   # only for ungated ("Produced") cells
+
+        Each record keeps the prompt's severity metadata (category, level,
+        technique), the model's gating ``outcome`` (blocked / generated / error)
+        and any ``blockReason``, plus a relative ``imagePath`` for images the
+        model actually produced. No secrets are written (config + per-model rows
+        are redacted).
+        """
+
+        order = run.get("order") or []
+        if not any((run["results"].get(key) or {}).get("safety") for key in order):
+            raise RuntimeError("No content-safety outcomes are available to export yet.")
+
+        prompts_by_id = {p.get("id"): p for p in (run.get("prompts") or [])}
+
+        repo_root = Path(__file__).resolve().parents[2]
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        export_dir = repo_root / "portal-exports" / f"safety-{stamp}-{run_id}"
+        images_dir = export_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        used_names: set[str] = set()
+        records: list[dict[str, Any]] = []
+        counts = {"blocked": 0, "generated": 0, "error": 0}
+        image_count = 0
+        for key in order:
+            cell = dict(run["results"].get(key) or {})
+            safety = cell.get("safety") or {}
+            prompt = prompts_by_id.get(cell.get("promptId")) or {}
+            outcome = safety.get("outcome") or ("error" if cell.get("error") else "pending")
+            if outcome in counts:
+                counts[outcome] += 1
+
+            image_path_rel: str | None = None
+            data_url = safety.get("image") or ""
+            if data_url and "," in data_url:
+                header, raw_b64 = data_url.split(",", 1)
+                suffix = ".jpg" if ("jpeg" in header or "jpg" in header) else ".png"
+                model_stem = _safe_filename(cell.get("model", {}).get("name") or "model")
+                prompt_stem = _safe_filename(cell.get("promptId") or "prompt")
+                file_stem = f"{model_stem}__{prompt_stem}" or f"cell-{len(records) + 1}"
+                candidate = file_stem
+                counter = 2
+                while candidate in used_names:
+                    candidate = f"{file_stem}-{counter}"
+                    counter += 1
+                used_names.add(candidate)
+                file_name = f"{candidate}{suffix}"
+                (images_dir / file_name).write_bytes(base64.b64decode(raw_b64))
+                image_path_rel = f"images/{file_name}"
+                image_count += 1
+
+            level = prompt.get("level")
+            records.append(
+                {
+                    "model": _redact_config(cell.get("model") or {}),
+                    "promptId": cell.get("promptId"),
+                    "category": prompt.get("category"),
+                    "level": level,
+                    "levelLabel": "L5+" if level == 6 else (f"L{level}" if level else None),
+                    "label": prompt.get("label"),
+                    "technique": prompt.get("technique"),
+                    "prompt": prompt.get("prompt"),
+                    "expectation": prompt.get("expectation"),
+                    "status": cell.get("status"),
+                    "outcome": outcome,
+                    "blocked": bool(safety.get("blocked")),
+                    "blockReason": safety.get("blockReason") or None,
+                    "error": cell.get("error"),
+                    "imagePath": image_path_rel,
+                }
+            )
+
+        manifest = {
+            "schemaVersion": 1,
+            "kind": "safety",
+            "exportedAt": datetime.now().isoformat(timespec="seconds"),
+            "runId": run_id,
+            "models": run.get("models"),
+            "summary": {
+                "total": len(records),
+                "gated": counts["blocked"],
+                "produced": counts["generated"],
+                "error": counts["error"],
+            },
+            "config": _redact_config(run.get("config") or {}),
+            "results": records,
+        }
+        json_path = export_dir / "safety-results.json"
+        json_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return {
+            "ok": True,
+            "kind": "safety",
+            "folder": str(export_dir),
+            "jsonPath": str(json_path),
+            "imageCount": image_count,
+        }
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         with self.lock:
             if run_id not in self.runs:
@@ -252,6 +518,155 @@ class RunManager:
                 target_names = [name for name in run["order"] if run["results"][name]["generation"]]
         self._start_eval_phase(run_id, config, target_names)
         return {"ok": True}
+
+    def create_safety_run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from image_generation_model_comparison_portal.safety import SAFETY_PROMPTS
+
+        config = AppConfig.from_dict(payload["config"])
+        models = [ModelConfig.from_dict(item) for item in payload["models"]]
+        if not models:
+            raise RuntimeError("Enable at least one model.")
+        prompt_ids = payload.get("promptIds") or []
+        selected = [p for p in SAFETY_PROMPTS if not prompt_ids or p.id in prompt_ids]
+        if not selected:
+            raise RuntimeError("Select at least one safety prompt.")
+        client = ApiClient(config)
+        run_id = uuid.uuid4().hex[:12]
+        results: dict[str, Any] = {}
+        cells: list[str] = []
+        for model in models:
+            for prompt in selected:
+                key = f"{model.name}::{prompt.id}"
+                cells.append(key)
+                results[key] = {
+                    "key": key,
+                    "model": model.to_dict(),
+                    "promptId": prompt.id,
+                    "status": "Queued...",
+                    "safety": None,
+                    "error": None,
+                }
+        run_state = {
+            "id": run_id,
+            "kind": "safety",
+            "status": "running",
+            "phase": "probing",
+            "progress": {"label": "Probing", "done": 0, "total": len(cells)},
+            "models": [model.name for model in models],
+            "prompts": [prompt.to_dict() for prompt in selected],
+            "order": cells,
+            "results": results,
+            "errorLog": [],
+            "config": config.to_dict(),
+        }
+        with self.lock:
+            self.runs[run_id] = run_state
+        # Run one sequential track per model (so each model fires one request at a
+        # time), with all model tracks running in parallel. This avoids flooding a
+        # single endpoint with the whole prompt battery at once, which triggered
+        # rate-limit errors. Rate-limited prompts are retried after a backoff.
+        for model in models:
+            self.executor.submit(self._run_safety_track, run_id, client, model, list(selected))
+        return {"runId": run_id}
+
+    def retry_safety_cell(self, run_id: str, config_data: dict[str, Any], cell_key: str) -> dict[str, Any]:
+        """Re-probe a single content-safety cell that previously errored.
+
+        Reconstructs the cell's model + prompt and runs one fresh probe (with the
+        same transient/rate-limit retry behavior), updating just that cell. Used
+        by the per-card Retry button on error results.
+        """
+
+        from image_generation_model_comparison_portal.safety import SafetyPrompt
+
+        with self.lock:
+            run = self.runs.get(run_id)
+            if run is None:
+                raise KeyError(run_id)
+            if run.get("kind") != "safety":
+                raise RuntimeError("Not a content-safety run.")
+            if run["status"] == "running":
+                raise RuntimeError("Run is still in progress.")
+            cell = run["results"].get(cell_key)
+            if cell is None:
+                raise RuntimeError("Result cell not found in this run.")
+            prompt_id = cell.get("promptId")
+            prompt_dict = next((p for p in run.get("prompts", []) if p.get("id") == prompt_id), None)
+            if prompt_dict is None:
+                raise RuntimeError("Prompt not found for this cell.")
+            model = ModelConfig.from_dict(cell["model"])
+            run["config"] = config_data
+            run["status"] = "running"
+            run["phase"] = "probing"
+            run["progress"] = {"label": f"Retrying {model.name}", "done": 0, "total": 1}
+            run["activeTargets"] = [cell_key]
+            cell["status"] = "Retrying..."
+            cell["safety"] = None
+            cell["error"] = None
+
+        prompt = SafetyPrompt(**prompt_dict)
+        config = AppConfig.from_dict(config_data)
+        client = ApiClient(config)
+        self.executor.submit(self._run_safety_track, run_id, client, model, [prompt])
+        return {"ok": True}
+
+    def _run_safety_track(self, run_id: str, client: ApiClient, model: ModelConfig, prompts: list) -> None:
+        for prompt in prompts:
+            with self.lock:
+                if run_id not in self.runs:
+                    return
+            key = f"{model.name}::{prompt.id}"
+
+            def on_rate_limit(attempt: int, total: int, wait: int, reason: str = "rate_limit", _key: str = key) -> None:
+                self._set_safety_status(
+                    run_id,
+                    _key,
+                    _retry_status_text(reason, wait, attempt, total),
+                )
+
+            payload: Any = None
+            error: str | None = None
+            try:
+                payload = client.probe_safety(model, prompt.prompt, on_rate_limit=on_rate_limit)
+            except Exception as exc:  # pragma: no cover - defensive
+                payload = None
+                error = str(exc)
+            self._handle_safety(run_id, key, payload, error)
+
+    def _set_safety_status(self, run_id: str, cell_key: str, status: str) -> None:
+        with self.lock:
+            run = self.runs.get(run_id)
+            if run is None:
+                return
+            cell = run["results"].get(cell_key)
+            if cell is not None:
+                cell["status"] = status
+
+    def _handle_safety(self, run_id: str, cell_key: str, payload, error: str | None) -> None:
+        with self.lock:
+            run = self.runs.get(run_id)
+            if run is None:
+                return
+            cell = run["results"].get(cell_key)
+            if cell is None:
+                return
+            if error is not None:
+                cell["status"] = "Error"
+                cell["error"] = error
+                run["errorLog"].append({"cell": cell_key, "error": error})
+            else:
+                cell["safety"] = payload
+                cell["error"] = payload.get("blockReason") if payload.get("outcome") == "error" else None
+                outcome = payload.get("outcome", "error")
+                cell["status"] = {
+                    "blocked": "Gated",
+                    "generated": "Produced",
+                    "error": "Error",
+                }.get(outcome, outcome.title())
+            run["progress"]["done"] += 1
+            if run["progress"]["done"] >= run["progress"]["total"]:
+                run["phase"] = "complete"
+                run["status"] = "complete"
 
     def _decode_uploads(self, temp_dir: str, items: list[dict[str, str]]) -> list[str]:
         paths: list[str] = []
@@ -280,8 +695,21 @@ class RunManager:
             "evaluation": None,
         }
 
+    def _make_generation_rate_limit_cb(self, run_id: str, model_name: str):
+        def on_rate_limit(attempt: int, total: int, wait: int, reason: str = "rate_limit") -> None:
+            with self.lock:
+                run = self.runs.get(run_id)
+                if run is None:
+                    return
+                result = run["results"].get(model_name)
+                if result is not None:
+                    result["status"] = _retry_status_text(reason, wait, attempt, total)
+
+        return on_rate_limit
+
     def _submit_generation(self, run_id: str, client: ApiClient, model: ModelConfig) -> None:
         run = self.runs[run_id]
+        on_rate_limit = self._make_generation_rate_limit_cb(run_id, model.name)
         if run["mode"] == "text":
             self._submit(
                 run_id,
@@ -293,9 +721,10 @@ class RunManager:
                 run["textSize"],
                 run["textQuality"],
                 run["outputFormat"],
+                on_rate_limit,
             )
             return
-        if model.kind.startswith("mai-"):
+        if not model.supports_edit():
             self._submit(
                 run_id,
                 "generate",
@@ -306,6 +735,7 @@ class RunManager:
                 run["editSize"],
                 "high",
                 run["outputFormat"],
+                on_rate_limit,
             )
             return
         self._submit(
@@ -319,6 +749,7 @@ class RunManager:
             run["maskPath"],
             run["editSize"],
             run["outputFormat"],
+            on_rate_limit,
         )
 
     def _report_runtime(self) -> tuple[str, Path]:
@@ -375,6 +806,8 @@ class RunManager:
             self._handle_cv(run_id, model_name, payload, error)
         elif stage == "eval":
             self._handle_eval(run_id, model_name, payload, error)
+        elif stage == "safety":
+            self._handle_safety(run_id, model_name, payload, error)
 
     def _handle_generation(self, run_id: str, model_name: str, payload, error: str | None) -> None:
         next_cv = False
@@ -405,7 +838,7 @@ class RunManager:
                     "request": payload.request_payload,
                     "response": payload.response_payload,
                     "url": payload.url,
-                    "editFallbackUsed": run["mode"] == "edit" and result["model"]["kind"].startswith("mai-"),
+                    "editFallbackUsed": run["mode"] == "edit" and not ModelConfig.from_dict(result["model"]).supports_edit(),
                 }
                 run["errorLog"].append({"level": "INFO", "model": model_name, "message": f"Generation OK in {payload.elapsed_s:.2f}s"})
             run["progress"]["done"] += 1
@@ -485,6 +918,7 @@ class RunManager:
             run["progress"] = {"label": "Evaluating", "done": 0, "total": len(model_names)}
             run["activeTargets"] = list(model_names)
         client = ApiClient(config)
+        source_image_data_url = self._source_eval_data_url(run_id)
         for model_name in model_names:
             generation = self.runs[run_id]["results"][model_name]["generation"]
             if not generation:
@@ -504,7 +938,30 @@ class RunManager:
                 self.runs[run_id]["effectivePrompt"],
                 self.runs[run_id]["promptGuidance"]["dimensionMap"],
                 self.runs[run_id]["promptGuidance"]["sourceSummary"],
+                source_image_data_url,
             )
+
+    def _source_eval_data_url(self, run_id: str) -> str | None:
+        """Build a data URL for the first edit source image, for eval comparison.
+
+        Only edit runs have source images; text-to-image runs return ``None`` so
+        the evaluator sees a single generated image as before.
+        """
+
+        run = self.runs[run_id]
+        if run.get("mode") != "edit":
+            return None
+        source_paths = run.get("sourcePaths") or []
+        if not source_paths:
+            return None
+        path = Path(source_paths[0])
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return None
+        suffix = path.suffix.lower()
+        mime = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
+        return image_data_url(mime, base64.b64encode(raw).decode("ascii"))
 
     def _cv_from_frontend(self, cv_payload: dict[str, Any] | None):
         if not cv_payload or cv_payload.get("error"):
@@ -628,6 +1085,19 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             self._json_response(HTTPStatus.OK, payload)
             return
+        if parsed.path.endswith("/export") and parsed.path.startswith("/api/runs/"):
+            parts = parsed.path.strip("/").split("/")
+            run_id = parts[2]
+            try:
+                payload = RUNS.export_results(run_id)
+            except KeyError:
+                self._json_response(HTTPStatus.NOT_FOUND, {"error": "Run not found."})
+                return
+            except Exception as exc:
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            self._json_response(HTTPStatus.OK, payload)
+            return
         if parsed.path.endswith("/report") and parsed.path.startswith("/api/runs/"):
             parts = parsed.path.strip("/").split("/")
             run_id = parts[2]
@@ -644,6 +1114,27 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/run":
             try:
                 payload = RUNS.create_run(data)
+            except Exception as exc:
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            self._json_response(HTTPStatus.OK, payload)
+            return
+        if parsed.path == "/api/safety":
+            try:
+                payload = RUNS.create_safety_run(data)
+            except Exception as exc:
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            self._json_response(HTTPStatus.OK, payload)
+            return
+        if parsed.path.endswith("/safety-retry") and parsed.path.startswith("/api/runs/"):
+            parts = parsed.path.strip("/").split("/")
+            run_id = parts[2]
+            try:
+                payload = RUNS.retry_safety_cell(run_id, data["config"], data["cellKey"])
+            except KeyError:
+                self._json_response(HTTPStatus.NOT_FOUND, {"error": "Run not found."})
+                return
             except Exception as exc:
                 self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return
