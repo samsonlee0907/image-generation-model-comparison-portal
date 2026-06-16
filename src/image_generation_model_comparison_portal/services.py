@@ -175,9 +175,10 @@ RATE_LIMIT_RETRY_SECONDS = 60
 RATE_LIMIT_MAX_RETRIES = 5
 
 # Transient transport/5xx errors usually clear within seconds, so retry quickly
-# a few times before giving up.
+# a few times before giving up. FLUX endpoints in particular can return 503 for
+# a while during cold-start/overload, so allow several attempts.
 TRANSIENT_RETRY_SECONDS = 8
-TRANSIENT_MAX_RETRIES = 3
+TRANSIENT_MAX_RETRIES = 5
 
 
 def is_content_filter_block(message: str, payload: dict[str, Any] | None = None) -> bool:

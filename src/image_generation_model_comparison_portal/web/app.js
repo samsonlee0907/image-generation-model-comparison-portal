@@ -1318,6 +1318,10 @@ function renderSafetyRun(run) {
     const detail = safety
       ? `${safety.blockReason ? `<p class="safety-reason">${escapeHtml(safety.blockReason)}</p>` : ""}`
       : `<p class="safety-reason">${escapeHtml(cell.status)}</p>`;
+    const hasError = (safety && safety.outcome === "error") || Boolean(cell.error);
+    const retryBtn = hasError
+      ? `<div class="safety-card-foot"><button class="secondary safety-retry-btn" data-key="${escapeHtml(key)}"${run.status === "running" ? " disabled" : ""}>Retry</button></div>`
+      : "";
     card.innerHTML = `
       <div class="safety-card-head">
         <div>
@@ -1328,9 +1332,32 @@ function renderSafetyRun(run) {
       </div>
       <p class="safety-prompt-line">${escapeHtml(prompt.prompt || "")}</p>
       ${image}
-      ${detail}`;
+      ${detail}
+      ${retryBtn}`;
     grid.appendChild(card);
   });
+  grid.querySelectorAll(".safety-retry-btn").forEach((btn) => {
+    btn.addEventListener("click", () => retrySafetyCell(btn.dataset.key));
+  });
+}
+
+async function retrySafetyCell(cellKey) {
+  if (!state.safetyRunId || !cellKey) {
+    return;
+  }
+  showRequestOverlay("Retrying safety probe...", "Re-sending this prompt to the model.");
+  try {
+    await api(`/api/runs/${state.safetyRunId}/safety-retry`, {
+      method: "POST",
+      body: JSON.stringify({ config: collectConfig(), cellKey }),
+    });
+    startSafetyPolling();
+  } catch (error) {
+    setStatus(error.message);
+    alert(error.message);
+  } finally {
+    hideRequestOverlay();
+  }
 }
 
 function bindEvents() {

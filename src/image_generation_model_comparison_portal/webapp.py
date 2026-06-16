@@ -569,6 +569,47 @@ class RunManager:
             self.executor.submit(self._run_safety_track, run_id, client, model, list(selected))
         return {"runId": run_id}
 
+    def retry_safety_cell(self, run_id: str, config_data: dict[str, Any], cell_key: str) -> dict[str, Any]:
+        """Re-probe a single content-safety cell that previously errored.
+
+        Reconstructs the cell's model + prompt and runs one fresh probe (with the
+        same transient/rate-limit retry behavior), updating just that cell. Used
+        by the per-card Retry button on error results.
+        """
+
+        from image_generation_model_comparison_portal.safety import SafetyPrompt
+
+        with self.lock:
+            run = self.runs.get(run_id)
+            if run is None:
+                raise KeyError(run_id)
+            if run.get("kind") != "safety":
+                raise RuntimeError("Not a content-safety run.")
+            if run["status"] == "running":
+                raise RuntimeError("Run is still in progress.")
+            cell = run["results"].get(cell_key)
+            if cell is None:
+                raise RuntimeError("Result cell not found in this run.")
+            prompt_id = cell.get("promptId")
+            prompt_dict = next((p for p in run.get("prompts", []) if p.get("id") == prompt_id), None)
+            if prompt_dict is None:
+                raise RuntimeError("Prompt not found for this cell.")
+            model = ModelConfig.from_dict(cell["model"])
+            run["config"] = config_data
+            run["status"] = "running"
+            run["phase"] = "probing"
+            run["progress"] = {"label": f"Retrying {model.name}", "done": 0, "total": 1}
+            run["activeTargets"] = [cell_key]
+            cell["status"] = "Retrying..."
+            cell["safety"] = None
+            cell["error"] = None
+
+        prompt = SafetyPrompt(**prompt_dict)
+        config = AppConfig.from_dict(config_data)
+        client = ApiClient(config)
+        self.executor.submit(self._run_safety_track, run_id, client, model, [prompt])
+        return {"ok": True}
+
     def _run_safety_track(self, run_id: str, client: ApiClient, model: ModelConfig, prompts: list) -> None:
         for prompt in prompts:
             with self.lock:
@@ -1057,6 +1098,19 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/safety":
             try:
                 payload = RUNS.create_safety_run(data)
+            except Exception as exc:
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            self._json_response(HTTPStatus.OK, payload)
+            return
+        if parsed.path.endswith("/safety-retry") and parsed.path.startswith("/api/runs/"):
+            parts = parsed.path.strip("/").split("/")
+            run_id = parts[2]
+            try:
+                payload = RUNS.retry_safety_cell(run_id, data["config"], data["cellKey"])
+            except KeyError:
+                self._json_response(HTTPStatus.NOT_FOUND, {"error": "Run not found."})
+                return
             except Exception as exc:
                 self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return

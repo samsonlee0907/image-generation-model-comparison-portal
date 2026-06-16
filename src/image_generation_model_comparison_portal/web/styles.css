@@ -1095,6 +1095,17 @@ label span,
   word-break: break-word;
 }
 
+.safety-card-foot {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.safety-retry-btn {
+  padding: 4px 14px;
+  font-size: 0.78rem;
+}
+
 @media (max-width: 720px) {
   .safety-grid {
     grid-template-columns: 1fr;

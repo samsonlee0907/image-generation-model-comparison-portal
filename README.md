@@ -204,9 +204,15 @@ classes of transient failure before surfacing an error:
   `Rate limited, waiting 60s (n/5)` status.
 - **Transient transport / server errors** (HTTP 502/503/504, dropped or reset
   connections, timeouts). These usually clear within seconds, so the app retries
-  quickly (8 seconds apart, up to 3 times) and shows a
-  `Service busy, retrying 8s (n/3)` status.
+  quickly (8 seconds apart, up to 5 times) and shows a
+  `Service busy, retrying 8s (n/5)` status. FLUX endpoints in particular can
+  return 503 during cold-start/overload, so the extra attempts give them time to
+  recover.
 
 Content-safety gates and other permanent errors are never retried. Safety probes
 additionally run one request at a time per model (four model tracks in parallel)
 to avoid flooding a shared endpoint.
+
+If a safety probe still ends in an error after the automatic retries (e.g. a
+model that stays unavailable for minutes), each errored result card shows a
+**Retry** button that re-probes just that one model/prompt cell on demand.
