@@ -319,6 +319,9 @@ class RunManager:
                 raise KeyError(run_id)
             run = _to_plain(self.runs[run_id])
 
+        if run.get("kind") == "safety":
+            return self._export_safety_results(run_id, run)
+
         if not any((run["results"].get(name) or {}).get("generation") for name in run["order"]):
             raise RuntimeError("No generated images are available to export.")
 
@@ -384,6 +387,112 @@ class RunManager:
 
         return {
             "ok": True,
+            "folder": str(export_dir),
+            "jsonPath": str(json_path),
+            "imageCount": image_count,
+        }
+
+    def _export_safety_results(self, run_id: str, run: dict[str, Any]) -> dict[str, Any]:
+        """Write content-safety probe outcomes to a local folder + JSON manifest.
+
+        Layout (under ``portal-exports/`` at the repo root)::
+
+            portal-exports/safety-<timestamp>-<runId>/
+                safety-results.json   # per-model x per-prompt outcomes
+                images/<model>__<promptId>.png   # only for ungated ("Produced") cells
+
+        Each record keeps the prompt's severity metadata (category, level,
+        technique), the model's gating ``outcome`` (blocked / generated / error)
+        and any ``blockReason``, plus a relative ``imagePath`` for images the
+        model actually produced. No secrets are written (config + per-model rows
+        are redacted).
+        """
+
+        order = run.get("order") or []
+        if not any((run["results"].get(key) or {}).get("safety") for key in order):
+            raise RuntimeError("No content-safety outcomes are available to export yet.")
+
+        prompts_by_id = {p.get("id"): p for p in (run.get("prompts") or [])}
+
+        repo_root = Path(__file__).resolve().parents[2]
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        export_dir = repo_root / "portal-exports" / f"safety-{stamp}-{run_id}"
+        images_dir = export_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        used_names: set[str] = set()
+        records: list[dict[str, Any]] = []
+        counts = {"blocked": 0, "generated": 0, "error": 0}
+        image_count = 0
+        for key in order:
+            cell = dict(run["results"].get(key) or {})
+            safety = cell.get("safety") or {}
+            prompt = prompts_by_id.get(cell.get("promptId")) or {}
+            outcome = safety.get("outcome") or ("error" if cell.get("error") else "pending")
+            if outcome in counts:
+                counts[outcome] += 1
+
+            image_path_rel: str | None = None
+            data_url = safety.get("image") or ""
+            if data_url and "," in data_url:
+                header, raw_b64 = data_url.split(",", 1)
+                suffix = ".jpg" if ("jpeg" in header or "jpg" in header) else ".png"
+                model_stem = _safe_filename(cell.get("model", {}).get("name") or "model")
+                prompt_stem = _safe_filename(cell.get("promptId") or "prompt")
+                file_stem = f"{model_stem}__{prompt_stem}" or f"cell-{len(records) + 1}"
+                candidate = file_stem
+                counter = 2
+                while candidate in used_names:
+                    candidate = f"{file_stem}-{counter}"
+                    counter += 1
+                used_names.add(candidate)
+                file_name = f"{candidate}{suffix}"
+                (images_dir / file_name).write_bytes(base64.b64decode(raw_b64))
+                image_path_rel = f"images/{file_name}"
+                image_count += 1
+
+            level = prompt.get("level")
+            records.append(
+                {
+                    "model": _redact_config(cell.get("model") or {}),
+                    "promptId": cell.get("promptId"),
+                    "category": prompt.get("category"),
+                    "level": level,
+                    "levelLabel": "L5+" if level == 6 else (f"L{level}" if level else None),
+                    "label": prompt.get("label"),
+                    "technique": prompt.get("technique"),
+                    "prompt": prompt.get("prompt"),
+                    "expectation": prompt.get("expectation"),
+                    "status": cell.get("status"),
+                    "outcome": outcome,
+                    "blocked": bool(safety.get("blocked")),
+                    "blockReason": safety.get("blockReason") or None,
+                    "error": cell.get("error"),
+                    "imagePath": image_path_rel,
+                }
+            )
+
+        manifest = {
+            "schemaVersion": 1,
+            "kind": "safety",
+            "exportedAt": datetime.now().isoformat(timespec="seconds"),
+            "runId": run_id,
+            "models": run.get("models"),
+            "summary": {
+                "total": len(records),
+                "gated": counts["blocked"],
+                "produced": counts["generated"],
+                "error": counts["error"],
+            },
+            "config": _redact_config(run.get("config") or {}),
+            "results": records,
+        }
+        json_path = export_dir / "safety-results.json"
+        json_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return {
+            "ok": True,
+            "kind": "safety",
             "folder": str(export_dir),
             "jsonPath": str(json_path),
             "imageCount": image_count,

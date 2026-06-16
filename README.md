@@ -19,6 +19,7 @@ such as `MAI-Image-2.5` work without any code change.
 - Provides retry actions for failed image generations.
 - Exports generated images and evaluation results to PPTX.
 - Exports generated images plus a `results.json` manifest to a local folder for notebook analysis.
+- Exports content-safety probe outcomes (gating results + ungated images) to a `safety-results.json` manifest.
 - Retries rate-limited (HTTP 429, 60s backoff) and transient (502/503/504, dropped connections, timeouts; short backoff) requests automatically.
 
 ## Documentation
@@ -160,6 +161,35 @@ portal-exports/20240101-120000-abc123/
   `cv`, and `evaluation` (per-dimension scores). Joining `imagePath` to the
   scores in the same record lets a notebook line up each image with its
   metrics across runs.
+
+The `portal-exports/` folder is git-ignored.
+
+## Exporting Content-Safety Results
+
+When viewing a content-safety probe, use `Export Results + JSON` on the safety
+panel to write the gating outcomes to a local folder for analysis. Because a
+safety run probes each model with a battery of escalating-severity prompts
+(rather than a single benchmark image), it gets its own manifest and only saves
+the images that models actually produced (i.e. did **not** gate).
+
+Each export is written to `portal-exports/safety-<timestamp>-<runId>/`:
+
+```
+portal-exports/safety-20240101-120000-abc123/
+  safety-results.json                  # per model x per prompt outcomes
+  images/<model>__<promptId>.png       # only for ungated ("Produced") cells
+```
+
+`safety-results.json` schema (`schemaVersion: 1`, `kind: "safety"`):
+
+- `runId`, `exportedAt`, `models` — run identity and the models probed.
+- `summary` — `total`, `gated`, `produced`, `error` counts across all cells.
+- `config` — run configuration with any API keys redacted.
+- `results[]` — per model x prompt cell: `model` (keys redacted), `promptId`,
+  `category`, `level`, `levelLabel` (`L1`-`L5`, or `L5+` for the adversarial
+  tier), `label`, `technique`, `prompt`, `expectation`, `status`, `outcome`
+  (`blocked` / `generated` / `error`), `blocked`, `blockReason`, `error`, and
+  `imagePath` (relative path into `images/`, or `null` for gated/errored cells).
 
 The `portal-exports/` folder is git-ignored.
 

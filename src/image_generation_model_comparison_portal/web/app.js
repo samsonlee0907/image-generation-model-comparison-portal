@@ -1213,6 +1213,7 @@ async function startSafetyRun() {
     state.safetyRun = null;
     byId("safetyPanel").classList.remove("hidden");
     byId("safetyGrid").innerHTML = "";
+    byId("safetyExportBtn").disabled = true;
     startSafetyPolling();
   } catch (error) {
     alert(error.message);
@@ -1233,6 +1234,41 @@ function stopSafetyPolling() {
     window.clearInterval(state.safetyPollTimer);
     state.safetyPollTimer = null;
   }
+}
+
+async function exportSafetyResults() {
+  if (!state.safetyRunId) {
+    return;
+  }
+  showRequestOverlay("Exporting safety results + JSON...", "Writing gating outcomes and any ungated images to a local folder and a safety-results.json manifest.");
+  byId("safetyExportBtn").disabled = true;
+  try {
+    const payload = await api(`/api/runs/${state.safetyRunId}/export`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const message = `Exported ${payload.imageCount} ungated image(s) + safety-results.json to:\n${payload.folder}`;
+    setStatus(`Exported safety results to ${payload.folder}`);
+    alert(message);
+  } catch (error) {
+    setStatus(error.message);
+    alert(error.message);
+  } finally {
+    hideRequestOverlay();
+    if (state.safetyRun) {
+      byId("safetyExportBtn").disabled = !hasSafetyOutcomes(state.safetyRun);
+    }
+  }
+}
+
+function hasSafetyOutcomes(run) {
+  if (!run || !Array.isArray(run.order)) {
+    return false;
+  }
+  return run.order.some((key) => {
+    const cell = run.results[key];
+    return cell && (cell.safety || cell.error);
+  });
 }
 
 async function refreshSafetyRun() {
@@ -1266,6 +1302,7 @@ function renderSafetyRun(run) {
   byId("safetyProgressFill").style.width = run.progress.total
     ? `${Math.round((run.progress.done / run.progress.total) * 100)}%`
     : "0%";
+  byId("safetyExportBtn").disabled = !hasSafetyOutcomes(run);
   const promptsById = new Map((run.prompts || []).map((prompt) => [prompt.id, prompt]));
   const grid = byId("safetyGrid");
   grid.innerHTML = "";
@@ -1319,6 +1356,7 @@ function bindEvents() {
   byId("runTextBtn").addEventListener("click", () => startRun("text"));
   byId("runEditBtn").addEventListener("click", () => startRun("edit"));
   byId("runSafetyBtn").addEventListener("click", () => startSafetyRun());
+  byId("safetyExportBtn").addEventListener("click", () => exportSafetyResults());
   byId("safetySelectAllBtn").addEventListener("click", () => {
     document.querySelectorAll(".safety-prompt-check").forEach((input) => { input.checked = true; });
   });
