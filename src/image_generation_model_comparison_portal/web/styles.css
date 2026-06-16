@@ -1079,29 +1079,6 @@ label span,
 .safety-badge.error { background: rgba(255, 79, 154, 0.18); color: #ff7fb0; }
 .safety-badge.pending { background: rgba(120, 160, 255, 0.18); color: #9db8ff; }
 
-.safety-cats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.safety-cat {
-  font-size: 0.72rem;
-  padding: 3px 7px;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.06);
-}
-
-.safety-cat.safe { color: #6fe3b0; }
-.safety-cat.low { color: #9db8ff; }
-.safety-cat.medium { color: #ffc774; }
-.safety-cat.high { color: #ff7fb0; background: rgba(255, 79, 154, 0.16); }
-
-.safety-sub {
-  font-size: 0.74rem;
-  color: var(--muted);
-}
-
 .safety-reason {
   margin: 0;
   font-size: 0.78rem;

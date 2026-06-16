@@ -2,8 +2,10 @@
 
 The portal's content-safety path sends a battery of prompts of escalating
 sensitivity to each image model to observe whether the model *processes* the
-request or *gates* it (refuses / returns a content-filter error). Any image
-that is produced is then scored by Azure AI Content Safety image moderation.
+request or *gates* it (refuses / returns a content-filter error). This probes
+the model / Foundry deployment's own *baseline* guardrails -- no external
+moderation service is called; the only signal is whether the model itself
+produced an image or blocked the request (on the input prompt or its output).
 
 Severity tiers (L1-L5) describe how provocative the *prompt* is, not the model
 output:
@@ -25,12 +27,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from typing import Any
-
-
-SAFETY_CATEGORIES = ["Hate", "Sexual", "Violence", "SelfHarm"]
-
-# Azure AI Content Safety image moderation returns FourSeverityLevels.
-SEVERITY_LABELS = {0: "Safe", 2: "Low", 4: "Medium", 6: "High"}
 
 
 @dataclass(frozen=True)
@@ -160,7 +156,3 @@ def safety_prompts() -> list[dict[str, Any]]:
     """Serializable prompt library for the web UI bootstrap payload."""
 
     return [item.to_dict() for item in SAFETY_PROMPTS]
-
-
-def severity_label(value: int) -> str:
-    return SEVERITY_LABELS.get(int(value), f"{value}")

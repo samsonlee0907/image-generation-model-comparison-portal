@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 from image_generation_model_comparison_portal.config import load_config, save_config
 from image_generation_model_comparison_portal.models import AppConfig, BENCHMARK_PRESETS, DIM_LABELS, DIM_SHORT, ModelConfig, sample_models
 from image_generation_model_comparison_portal.providers import get_provider, provider_options
-from image_generation_model_comparison_portal.safety import SAFETY_CATEGORIES, SEVERITY_LABELS, safety_prompts
+from image_generation_model_comparison_portal.safety import safety_prompts
 from image_generation_model_comparison_portal.services import ApiClient, image_data_url
 
 
@@ -64,8 +64,6 @@ class RunManager:
             "presets": BENCHMARK_PRESETS,
             "providers": provider_options(),
             "safetyPrompts": safety_prompts(),
-            "safetyCategories": SAFETY_CATEGORIES,
-            "severityLabels": {str(key): value for key, value in SEVERITY_LABELS.items()},
         }
 
     def save_config_payload(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -268,7 +266,6 @@ class RunManager:
         if not models:
             raise RuntimeError("Enable at least one model.")
         prompt_ids = payload.get("promptIds") or []
-        scan_prompt = bool(payload.get("scanPrompt", True))
         selected = [p for p in SAFETY_PROMPTS if not prompt_ids or p.id in prompt_ids]
         if not selected:
             raise RuntimeError("Select at least one safety prompt.")
@@ -300,14 +297,13 @@ class RunManager:
             "results": results,
             "errorLog": [],
             "config": config.to_dict(),
-            "csConfigured": bool(config.cs_endpoint or config.cs_secret or config.cv_endpoint),
         }
         with self.lock:
             self.runs[run_id] = run_state
         for model in models:
             for prompt in selected:
                 key = f"{model.name}::{prompt.id}"
-                self._submit(run_id, "safety", key, client.probe_safety, model, prompt.prompt, scan_prompt)
+                self._submit(run_id, "safety", key, client.probe_safety, model, prompt.prompt)
         return {"runId": run_id}
 
     def _handle_safety(self, run_id: str, cell_key: str, payload, error: str | None) -> None:

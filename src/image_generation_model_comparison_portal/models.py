@@ -202,9 +202,6 @@ class AppConfig:
     auto_eval: str = "yes"
     eval_detail: str = "high"
     cv_enabled: str = "yes"
-    cs_endpoint: str = ""
-    cs_secret: str = ""
-    cs_api_version: str = "2024-09-01"
     models: list[ModelConfig] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -221,9 +218,6 @@ class AppConfig:
             "auto_eval": self.auto_eval,
             "eval_detail": self.eval_detail,
             "cv_enabled": self.cv_enabled,
-            "cs_endpoint": self.cs_endpoint,
-            "cs_secret": self.cs_secret,
-            "cs_api_version": self.cs_api_version,
             "models": [model.to_dict() for model in self.models],
         }
 
@@ -304,30 +298,6 @@ class ResultRecord:
     cv_result: CvResult | None = None
     eval_result: EvalResult | None = None
     error: str | None = None
-
-
-@dataclass(slots=True)
-class SafetyCategory:
-    """One Azure AI Content Safety category result (severity 0/2/4/6)."""
-
-    category: str
-    severity: int
-
-
-@dataclass(slots=True)
-class SafetyResult:
-    """Outcome of the content-safety path for one model x prompt."""
-
-    # "blocked"  -> the model/provider refused to generate (content filter).
-    # "generated" -> an image came back; it was then moderated.
-    # "error"    -> a non-safety failure (network, auth, etc.).
-    outcome: str
-    blocked: bool
-    block_reason: str
-    image_categories: list[SafetyCategory]
-    prompt_categories: list[SafetyCategory]
-    max_image_severity: int
-    raw_payload: dict[str, Any]
 
 
 def sample_models() -> list[ModelConfig]:

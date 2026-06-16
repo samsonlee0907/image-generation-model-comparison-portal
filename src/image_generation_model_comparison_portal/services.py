@@ -28,7 +28,6 @@ from image_generation_model_comparison_portal.providers import (
     extract_image,
     get_provider,
 )
-from image_generation_model_comparison_portal.safety import SAFETY_CATEGORIES, severity_label
 
 
 def _dimension_schema() -> str:
@@ -165,17 +164,11 @@ class ApiClient:
     def _vision_endpoint(self) -> str:
         return (self.config.cv_endpoint or self.config.global_endpoint).rstrip("/")
 
-    def _cs_endpoint(self) -> str:
-        return (self.config.cs_endpoint or self.config.cv_endpoint or self.config.global_endpoint).rstrip("/")
-
     def _secret(self) -> str:
         return self.config.global_secret.strip()
 
     def _vision_secret(self) -> str:
         return (self.config.cv_secret or self.config.global_secret).strip()
-
-    def _cs_secret(self) -> str:
-        return (self.config.cs_secret or self.config.cv_secret or self.config.global_secret).strip()
 
     def _auth_headers(self, auth: str, json_content: bool = True) -> dict[str, str]:
         """Build auth headers for a provider auth style.
@@ -201,17 +194,6 @@ class ApiClient:
     def _vision_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/octet-stream"}
         secret = self._vision_secret()
-        if self.config.global_auth_type == "apiKey":
-            headers["Ocp-Apim-Subscription-Key"] = secret
-        else:
-            headers["Authorization"] = f"Bearer {secret}"
-        return headers
-
-    def _cs_headers(self, json_content: bool = True) -> dict[str, str]:
-        headers: dict[str, str] = {}
-        if json_content:
-            headers["Content-Type"] = "application/json"
-        secret = self._cs_secret()
         if self.config.global_auth_type == "apiKey":
             headers["Ocp-Apim-Subscription-Key"] = secret
         else:
@@ -789,71 +771,14 @@ class ApiClient:
     # ------------------------------------------------------------------
     # Content safety path
     # ------------------------------------------------------------------
-    def _cs_api_version(self) -> str:
-        return self.config.cs_api_version or "2024-09-01"
-
-    def analyze_image_safety(self, image_b64: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Run Azure AI Content Safety image moderation on a base64 image.
-
-        Returns a list of ``{category, severity, label}`` plus the raw payload.
-        Severities are FourSeverityLevels: 0/2/4/6 = Safe/Low/Medium/High.
-        """
-
-        url = (
-            f"{self._cs_endpoint()}/contentsafety/image:analyze"
-            f"?api-version={quote(self._cs_api_version(), safe='')}"
-        )
-        body = {
-            "image": {"content": image_b64},
-            "categories": SAFETY_CATEGORIES,
-            "outputType": "FourSeverityLevels",
-        }
-        response = requests.post(url, headers=self._cs_headers(True), json=body, timeout=self._timeout_for("cv"))
-        payload = self._read_json(response)
-        self._raise_for_payload(response, payload)
-        categories = [
-            {
-                "category": str(item.get("category", "")),
-                "severity": int(item.get("severity", 0) or 0),
-                "label": severity_label(int(item.get("severity", 0) or 0)),
-            }
-            for item in payload.get("categoriesAnalysis", [])
-        ]
-        return categories, payload
-
-    def analyze_text_safety(self, text: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Run Azure AI Content Safety text moderation on a prompt."""
-
-        url = (
-            f"{self._cs_endpoint()}/contentsafety/text:analyze"
-            f"?api-version={quote(self._cs_api_version(), safe='')}"
-        )
-        body = {
-            "text": text,
-            "categories": SAFETY_CATEGORIES,
-            "outputType": "FourSeverityLevels",
-        }
-        response = requests.post(url, headers=self._cs_headers(True), json=body, timeout=self._timeout_for("cv"))
-        payload = self._read_json(response)
-        self._raise_for_payload(response, payload)
-        categories = [
-            {
-                "category": str(item.get("category", "")),
-                "severity": int(item.get("severity", 0) or 0),
-                "label": severity_label(int(item.get("severity", 0) or 0)),
-            }
-            for item in payload.get("categoriesAnalysis", [])
-        ]
-        return categories, payload
-
-    def probe_safety(self, model: ModelConfig, prompt: str, scan_prompt: bool = True) -> dict[str, Any]:
-        """Content-safety probe for one model x prompt.
+    def probe_safety(self, model: ModelConfig, prompt: str) -> dict[str, Any]:
+        """Observe one model's baseline content-safety behavior for a prompt.
 
         Sends the prompt to the image model and records whether the model
-        *gated* the request (content-filter block) or *produced* an image. Any
-        produced image is then moderated with Azure AI Content Safety. An
-        optional text scan of the prompt is included when a Content Safety
-        resource is configured.
+        *gated* the request (a content-filter block on the input prompt or the
+        generated output) or *produced* an image. This reflects the model /
+        Foundry deployment's own default guardrails only -- no external
+        moderation service is called.
         """
 
         result: dict[str, Any] = {
@@ -861,20 +786,8 @@ class ApiClient:
             "blocked": False,
             "blockReason": "",
             "image": None,
-            "imageCategories": [],
-            "promptCategories": [],
-            "maxImageSeverity": 0,
-            "moderationError": "",
             "url": "",
         }
-
-        cs_configured = bool(self.config.cs_endpoint or self.config.cs_secret or self.config.cv_endpoint)
-        if scan_prompt and cs_configured:
-            try:
-                prompt_cats, _ = self.analyze_text_safety(prompt)
-                result["promptCategories"] = prompt_cats
-            except Exception as exc:  # pragma: no cover - best effort
-                result["moderationError"] = f"prompt scan: {exc}"
 
         try:
             generation = self.generate_text(model, prompt, "1024x1024", "high", "png")
@@ -898,13 +811,6 @@ class ApiClient:
         result["outcome"] = "generated"
         result["url"] = generation.url
         result["image"] = image_data_url(generation.mime_type, generation.image_b64)
-        if cs_configured:
-            try:
-                image_cats, _ = self.analyze_image_safety(generation.image_b64)
-                result["imageCategories"] = image_cats
-                result["maxImageSeverity"] = max((c["severity"] for c in image_cats), default=0)
-            except Exception as exc:
-                result["moderationError"] = f"image moderation: {exc}"
         return result
 
 

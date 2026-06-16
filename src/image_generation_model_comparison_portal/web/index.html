@@ -73,18 +73,6 @@
           <span>CV API Key</span>
           <input id="cvSecret" type="password">
         </label>
-        <label>
-          <span>Content Safety Endpoint</span>
-          <input id="csEndpoint" type="text" placeholder="https://<resource>.cognitiveservices.azure.com">
-        </label>
-        <label>
-          <span>Content Safety Key</span>
-          <input id="csSecret" type="password">
-        </label>
-        <label>
-          <span>Content Safety API Version</span>
-          <input id="csApiVersion" type="text" placeholder="2024-09-01">
-        </label>
       </div>
     </section>
 
@@ -218,16 +206,13 @@
             <h2>Content Safety Probe</h2>
           </div>
           <p class="status-text">
-            Sends escalating-severity (L1&ndash;L5) prompts to every enabled model to see which
-            <strong>gate</strong> the request vs. <strong>produce</strong> an image. Any produced image is then
-            moderated with Azure AI Content Safety (Hate / Sexual / Violence / SelfHarm). Configure a
-            Content Safety resource in Global API Settings to enable image &amp; prompt moderation.
+            Sends escalating-severity (L1&ndash;L5) prompts to every enabled model to observe each
+            model's <strong>baseline content-safety behavior</strong> &mdash; whether it
+            <strong>gates</strong> the request (input or output filtered) vs. <strong>produces</strong>
+            an image. This reflects the model/Foundry deployment's own default guardrails; no external
+            moderation service is called.
           </p>
           <div class="row-actions">
-            <label class="toggle">
-              <input id="safetyScanPrompt" type="checkbox" checked>
-              <span>Also scan prompt text</span>
-            </label>
             <button id="safetySelectAllBtn" type="button" class="ghost">Select All</button>
             <button id="safetyClearBtn" type="button" class="ghost">Clear</button>
           </div>

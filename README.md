@@ -14,7 +14,7 @@ such as `MAI-Image-2.5` work without any code change.
 - Generates benchmark prompts and allows prompt refinement before execution.
 - Runs generation, CV analysis, and evaluator scoring concurrently.
 - Scores image quality on a **benchmark-aligned, data-driven** metric set (GenEval / T2I-CompBench / DPG-Bench axes).
-- Provides a separate **Content Safety** probe that tests model gating across severity tiers and moderates produced images with Azure AI Content Safety.
+- Provides a separate **Content Safety** probe that observes each model's baseline gating behavior across severity tiers (does the model produce an image or block the request).
 - Draws bounding boxes from CV output and lets users toggle them on or off.
 - Provides retry actions for failed image generations.
 - Exports generated images and evaluation results to PPTX.
@@ -23,7 +23,7 @@ such as `MAI-Image-2.5` work without any code change.
 
 - [Model Routing](docs/MODEL_ROUTING.md) — how each family routes its API path + request body, and how to add models/families.
 - [Image Quality Evaluation](docs/IMAGE_QUALITY_EVALUATION.md) — original methodology plus the refreshed, benchmark-aligned metrics.
-- [Content Safety Evaluation](docs/CONTENT_SAFETY_EVALUATION.md) — the severity-tiered safety probe and Azure AI Content Safety moderation.
+- [Content Safety Evaluation](docs/CONTENT_SAFETY_EVALUATION.md) — the severity-tiered probe that observes each model's baseline content-safety gating behavior.
 
 ## Evaluation Dimensions
 
@@ -74,8 +74,6 @@ Set these values before starting a comparison:
   The model used to generate benchmark prompts and score image quality.
 - `CV Endpoint` and `CV API Key`
   Optional if you want to use a separate Azure AI Vision resource.
-- `Content Safety Endpoint`, `Content Safety Key`, `Content Safety API Version`
-  Optional Azure AI Content Safety resource used by the Content Safety probe to moderate produced images and prompt text. Defaults to API version `2024-09-01`.
 - Model rows
   Enable the image-generation deployments you want to compare. For each row pick a **Family** (GPT-Image, FLUX, MAI-Image, or Custom) and enter your **deployment / model identifier**. Use **Advanced** to override the endpoint, API version, request path, or body model id per model.
 
@@ -110,11 +108,10 @@ Set these values before starting a comparison:
 
 1. Open the `Content Safety` tab.
 2. Select the severity-tiered (L1–L5) prompts to probe across the Hate / Sexual / Violence / Self-Harm categories.
-3. Optionally enable `Also scan prompt text`.
-4. Click `Run Content Safety Probe`.
-5. For each model × prompt the portal reports whether the model **gated** the request or **produced** an image, and moderates any produced image with Azure AI Content Safety (per-category severities).
+3. Click `Run Content Safety Probe`.
+4. For each model × prompt the portal reports the model's **baseline behavior** — whether the model **gated** the request (input or output filtered) or **produced** an image. No external moderation service is called; the signal is the model's own default guardrails.
 
-See [Content Safety Evaluation](docs/CONTENT_SAFETY_EVALUATION.md) for the probe design, severity scale, and responsible-use notes.
+See [Content Safety Evaluation](docs/CONTENT_SAFETY_EVALUATION.md) for the probe design, severity tiers, and responsible-use notes.
 
 ## Results And Analysis
 

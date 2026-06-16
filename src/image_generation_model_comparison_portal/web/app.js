@@ -93,9 +93,6 @@ function loadConfig(config) {
   byId("cvEnabled").value = config.cv_enabled || "yes";
   byId("cvEndpoint").value = config.cv_endpoint || "";
   byId("cvSecret").value = config.cv_secret || "";
-  byId("csEndpoint").value = config.cs_endpoint || "";
-  byId("csSecret").value = config.cs_secret || "";
-  byId("csApiVersion").value = config.cs_api_version || "2024-09-01";
   renderModels(config.models || []);
 }
 
@@ -113,9 +110,6 @@ function collectConfig() {
     cv_enabled: byId("cvEnabled").value,
     cv_endpoint: byId("cvEndpoint").value.trim(),
     cv_secret: byId("cvSecret").value.trim(),
-    cs_endpoint: byId("csEndpoint").value.trim(),
-    cs_secret: byId("csSecret").value.trim(),
-    cs_api_version: byId("csApiVersion").value.trim(),
     models: collectModels(),
   };
 }
@@ -659,6 +653,18 @@ function buildResultCard(result) {
     node.querySelector(".json-panel").classList.toggle("hidden");
   });
   updateBboxButton(node);
+  // Keep bounding boxes glued to the image as the card/page layout reflows
+  // (sibling cards finishing, panels expanding, responsive resizes).
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(() => {
+      if (typeof node._redrawBoxes === "function") {
+        node._redrawBoxes();
+      }
+    });
+    observer.observe(node.querySelector(".preview-shell"));
+    observer.observe(node.querySelector(".result-image"));
+    node._bboxObserver = observer;
+  }
   return node;
 }
 
@@ -717,6 +723,7 @@ function renderPreview(node, result) {
     image.classList.remove("has-image");
     image.removeAttribute("src");
     overlay.innerHTML = "";
+    node._redrawBoxes = null;
     return;
   }
   if (image.src !== result.generation.imageDataUrl) {
@@ -725,15 +732,23 @@ function renderPreview(node, result) {
   image.classList.add("has-image");
   const renderBoxes = () => {
     overlay.innerHTML = "";
-    if (!showBbox || !result.cv?.objects?.length || !image.naturalWidth || !image.naturalHeight) {
+    const visible = node.dataset.bboxVisible !== "false";
+    overlay.classList.toggle("hidden", !visible);
+    if (!visible || !result.cv?.objects?.length || !image.naturalWidth || !image.naturalHeight) {
       return;
     }
+    // Position boxes against the *actual rendered image rectangle* (not the
+    // container), so they track the image wherever layout places it — even when
+    // the page reflows, sibling cards grow, or the window resizes.
     const host = overlay.getBoundingClientRect();
-    const imageRatio = Math.min(host.width / image.naturalWidth, host.height / image.naturalHeight);
-    const drawWidth = image.naturalWidth * imageRatio;
-    const drawHeight = image.naturalHeight * imageRatio;
-    const offsetLeft = (host.width - drawWidth) / 2;
-    const offsetTop = (host.height - drawHeight) / 2;
+    const imageRect = image.getBoundingClientRect();
+    const drawWidth = imageRect.width;
+    const drawHeight = imageRect.height;
+    if (!drawWidth || !drawHeight) {
+      return;
+    }
+    const offsetLeft = imageRect.left - host.left;
+    const offsetTop = imageRect.top - host.top;
     result.cv.objects.forEach((box) => {
       const div = document.createElement("div");
       div.className = "bbox";
@@ -748,6 +763,7 @@ function renderPreview(node, result) {
       overlay.appendChild(div);
     });
   };
+  node._redrawBoxes = renderBoxes;
   if (image.complete) {
     renderBoxes();
   } else {
@@ -1042,11 +1058,6 @@ function renderRadar(entries) {
   `).join("");
 }
 
-function severityLabel(severity) {
-  const map = state.bootstrap?.severityLabels || {};
-  return map[String(severity)] || `Sev ${severity}`;
-}
-
 function renderSafetyPrompts() {
   const list = byId("safetyPromptList");
   if (!list) {
@@ -1110,7 +1121,6 @@ async function startSafetyRun() {
         config: collectConfig(),
         models,
         promptIds,
-        scanPrompt: byId("safetyScanPrompt").checked,
       }),
     });
     state.safetyRunId = response.runId;
@@ -1164,19 +1174,6 @@ function safetyOutcomeBadge(safety) {
   return '<span class="safety-badge error">Error</span>';
 }
 
-function safetyCategoriesHtml(categories) {
-  if (!categories || !categories.length) {
-    return "";
-  }
-  return `<div class="safety-cats">${categories
-    .map((cat) => {
-      const sev = Number(cat.severity || 0);
-      const cls = sev >= 6 ? "high" : sev >= 4 ? "medium" : sev >= 2 ? "low" : "safe";
-      return `<span class="safety-cat ${cls}">${escapeHtml(cat.category)}: ${severityLabel(sev)}</span>`;
-    })
-    .join("")}</div>`;
-}
-
 function renderSafetyRun(run) {
   const pill = byId("safetyStatus");
   pill.textContent = `${run.progress.label} ${run.progress.done}/${run.progress.total}`;
@@ -1195,13 +1192,8 @@ function renderSafetyRun(run) {
     const image = safety && safety.image
       ? `<img class="safety-thumb" src="${safety.image}" alt="Generated image">`
       : '<div class="safety-thumb placeholder"></div>';
-    const moderation = safety
-      ? `${safetyCategoriesHtml(safety.imageCategories)}
-         ${safety.promptCategories && safety.promptCategories.length
-            ? `<div class="safety-sub">Prompt scan:${safetyCategoriesHtml(safety.promptCategories)}</div>`
-            : ""}
-         ${safety.blockReason ? `<p class="safety-reason">${escapeHtml(safety.blockReason)}</p>` : ""}
-         ${safety.moderationError ? `<p class="safety-reason">${escapeHtml(safety.moderationError)}</p>` : ""}`
+    const detail = safety
+      ? `${safety.blockReason ? `<p class="safety-reason">${escapeHtml(safety.blockReason)}</p>` : ""}`
       : `<p class="safety-reason">${escapeHtml(cell.status)}</p>`;
     card.innerHTML = `
       <div class="safety-card-head">
@@ -1213,7 +1205,7 @@ function renderSafetyRun(run) {
       </div>
       <p class="safety-prompt-line">${escapeHtml(prompt.prompt || "")}</p>
       ${image}
-      ${moderation}`;
+      ${detail}`;
     grid.appendChild(card);
   });
 }
