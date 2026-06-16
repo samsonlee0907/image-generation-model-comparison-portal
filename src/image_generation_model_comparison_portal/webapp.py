@@ -19,7 +19,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from image_generation_model_comparison_portal.config import load_config, save_config
-from image_generation_model_comparison_portal.models import AppConfig, BENCHMARK_PRESETS, DIM_LABELS, ModelConfig, sample_models
+from image_generation_model_comparison_portal.models import AppConfig, BENCHMARK_PRESETS, DIM_LABELS, DIM_SHORT, ModelConfig, sample_models
+from image_generation_model_comparison_portal.providers import get_provider, provider_options
+from image_generation_model_comparison_portal.safety import SAFETY_CATEGORIES, SEVERITY_LABELS, safety_prompts
 from image_generation_model_comparison_portal.services import ApiClient, image_data_url
 
 
@@ -58,7 +60,12 @@ class RunManager:
             "config": config.to_dict(),
             "sampleModels": [model.to_dict() for model in sample_models()],
             "dimLabels": DIM_LABELS,
+            "dimShort": DIM_SHORT,
             "presets": BENCHMARK_PRESETS,
+            "providers": provider_options(),
+            "safetyPrompts": safety_prompts(),
+            "safetyCategories": SAFETY_CATEGORIES,
+            "severityLabels": {str(key): value for key, value in SEVERITY_LABELS.items()},
         }
 
     def save_config_payload(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -76,7 +83,7 @@ class RunManager:
         prompt = str(payload["prompt"]).strip()
         if not prompt:
             raise RuntimeError("Prompt required.")
-        models = [ModelConfig(**item) for item in payload["models"]]
+        models = [ModelConfig.from_dict(item) for item in payload["models"]]
         if not models:
             raise RuntimeError("Enable at least one model.")
         temp_dir = tempfile.mkdtemp(prefix="image-generation-model-comparison-portal-")
@@ -169,7 +176,7 @@ class RunManager:
             result["generation"] = None
             result["cv"] = None
             result["evaluation"] = None
-            model = ModelConfig(**result["model"])
+            model = ModelConfig.from_dict(result["model"])
         config = AppConfig.from_dict(config_data)
         client = ApiClient(config)
         self._submit_generation(run_id, client, model)
@@ -253,6 +260,82 @@ class RunManager:
         self._start_eval_phase(run_id, config, target_names)
         return {"ok": True}
 
+    def create_safety_run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from image_generation_model_comparison_portal.safety import SAFETY_PROMPTS
+
+        config = AppConfig.from_dict(payload["config"])
+        models = [ModelConfig.from_dict(item) for item in payload["models"]]
+        if not models:
+            raise RuntimeError("Enable at least one model.")
+        prompt_ids = payload.get("promptIds") or []
+        scan_prompt = bool(payload.get("scanPrompt", True))
+        selected = [p for p in SAFETY_PROMPTS if not prompt_ids or p.id in prompt_ids]
+        if not selected:
+            raise RuntimeError("Select at least one safety prompt.")
+        client = ApiClient(config)
+        run_id = uuid.uuid4().hex[:12]
+        results: dict[str, Any] = {}
+        cells: list[str] = []
+        for model in models:
+            for prompt in selected:
+                key = f"{model.name}::{prompt.id}"
+                cells.append(key)
+                results[key] = {
+                    "key": key,
+                    "model": model.to_dict(),
+                    "promptId": prompt.id,
+                    "status": "Queued...",
+                    "safety": None,
+                    "error": None,
+                }
+        run_state = {
+            "id": run_id,
+            "kind": "safety",
+            "status": "running",
+            "phase": "probing",
+            "progress": {"label": "Probing", "done": 0, "total": len(cells)},
+            "models": [model.name for model in models],
+            "prompts": [prompt.to_dict() for prompt in selected],
+            "order": cells,
+            "results": results,
+            "errorLog": [],
+            "config": config.to_dict(),
+            "csConfigured": bool(config.cs_endpoint or config.cs_secret or config.cv_endpoint),
+        }
+        with self.lock:
+            self.runs[run_id] = run_state
+        for model in models:
+            for prompt in selected:
+                key = f"{model.name}::{prompt.id}"
+                self._submit(run_id, "safety", key, client.probe_safety, model, prompt.prompt, scan_prompt)
+        return {"runId": run_id}
+
+    def _handle_safety(self, run_id: str, cell_key: str, payload, error: str | None) -> None:
+        with self.lock:
+            run = self.runs.get(run_id)
+            if run is None:
+                return
+            cell = run["results"].get(cell_key)
+            if cell is None:
+                return
+            if error is not None:
+                cell["status"] = "Error"
+                cell["error"] = error
+                run["errorLog"].append({"cell": cell_key, "error": error})
+            else:
+                cell["safety"] = payload
+                cell["error"] = payload.get("blockReason") if payload.get("outcome") == "error" else None
+                outcome = payload.get("outcome", "error")
+                cell["status"] = {
+                    "blocked": "Gated",
+                    "generated": "Produced",
+                    "error": "Error",
+                }.get(outcome, outcome.title())
+            run["progress"]["done"] += 1
+            if run["progress"]["done"] >= run["progress"]["total"]:
+                run["phase"] = "complete"
+                run["status"] = "complete"
+
     def _decode_uploads(self, temp_dir: str, items: list[dict[str, str]]) -> list[str]:
         paths: list[str] = []
         for index, item in enumerate(items):
@@ -295,7 +378,7 @@ class RunManager:
                 run["outputFormat"],
             )
             return
-        if model.kind.startswith("mai-"):
+        if not get_provider(model.family).supports_edit:
             self._submit(
                 run_id,
                 "generate",
@@ -375,6 +458,8 @@ class RunManager:
             self._handle_cv(run_id, model_name, payload, error)
         elif stage == "eval":
             self._handle_eval(run_id, model_name, payload, error)
+        elif stage == "safety":
+            self._handle_safety(run_id, model_name, payload, error)
 
     def _handle_generation(self, run_id: str, model_name: str, payload, error: str | None) -> None:
         next_cv = False
@@ -405,7 +490,7 @@ class RunManager:
                     "request": payload.request_payload,
                     "response": payload.response_payload,
                     "url": payload.url,
-                    "editFallbackUsed": run["mode"] == "edit" and result["model"]["kind"].startswith("mai-"),
+                    "editFallbackUsed": run["mode"] == "edit" and not get_provider(ModelConfig.from_dict(result["model"]).family).supports_edit,
                 }
                 run["errorLog"].append({"level": "INFO", "model": model_name, "message": f"Generation OK in {payload.elapsed_s:.2f}s"})
             run["progress"]["done"] += 1
@@ -644,6 +729,14 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/run":
             try:
                 payload = RUNS.create_run(data)
+            except Exception as exc:
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            self._json_response(HTTPStatus.OK, payload)
+            return
+        if parsed.path == "/api/safety":
+            try:
+                payload = RUNS.create_safety_run(data)
             except Exception as exc:
                 self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return

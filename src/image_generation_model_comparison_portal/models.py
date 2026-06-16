@@ -3,21 +3,72 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from image_generation_model_comparison_portal.providers import family_from_kind
 
+
+# Image-quality evaluation dimensions.
+#
+# The set is aligned with the most widely used public text-to-image benchmarks
+# and leaderboards rather than an ad-hoc list. See
+# ``docs/IMAGE_QUALITY_EVALUATION.md`` for the methodology and benchmark
+# provenance of each dimension. Dimensions are data-driven: the evaluator
+# system prompt, the radar chart, and the comparison table are all generated
+# from these maps, so new metrics can be added here without touching routing
+# or UI code.
 DIM_LABELS = {
     "prompt_adherence": "Prompt Adherence",
-    "text_rendering": "Text Rendering",
+    "object_accuracy": "Object Accuracy",
     "object_counting": "Object Counting",
-    "spatial_reasoning": "Spatial Reasoning",
+    "attribute_binding": "Attribute Binding",
+    "spatial_relationship": "Spatial Relationship",
+    "action_interaction": "Action & Interaction",
+    "text_rendering": "Text Rendering",
     "anatomy_proportions": "Anatomy",
     "physics_realism": "Physics & Realism",
     "color_accuracy": "Color Accuracy",
     "fine_detail": "Fine Detail",
-    "composition_aesthetics": "Composition",
+    "composition_aesthetics": "Composition & Aesthetics",
     "style_adherence": "Style Adherence",
 }
 DIM_KEYS = list(DIM_LABELS.keys())
 
+# Compact labels for the radar chart axes.
+DIM_SHORT = {
+    "prompt_adherence": "Prompt",
+    "object_accuracy": "Objects",
+    "object_counting": "Count",
+    "attribute_binding": "Binding",
+    "spatial_relationship": "Spatial",
+    "action_interaction": "Action",
+    "text_rendering": "Text",
+    "anatomy_proportions": "Anatomy",
+    "physics_realism": "Physics",
+    "color_accuracy": "Color",
+    "fine_detail": "Detail",
+    "composition_aesthetics": "Aesthetics",
+    "style_adherence": "Style",
+}
+
+# Per-dimension guidance injected into the evaluator system prompt. Each entry
+# notes the benchmark axis the dimension is modeled on.
+DIM_GUIDANCE = {
+    "prompt_adherence": "Overall faithfulness to the full prompt, including long/dense descriptions (DPG-Bench).",
+    "object_accuracy": "Every requested object/entity is present; nothing missing or hallucinated (GenEval single/two-object).",
+    "object_counting": "Correct quantity of each requested object (GenEval counting).",
+    "attribute_binding": "Each attribute (color, material, texture, shape) is bound to the correct object (GenEval color attribution; T2I-CompBench attribute binding).",
+    "spatial_relationship": "Correct relative positions and layout: left/right, above/below, foreground/background (GenEval position; T2I-CompBench spatial).",
+    "action_interaction": "Correct non-spatial relationships: actions, interactions, and verbs between subjects (T2I-CompBench non-spatial).",
+    "text_rendering": "Visible text is legible, correctly spelled, and believably formed.",
+    "anatomy_proportions": "Whole-body coherence: pose, gesture, limb/hand structure, finger counts, body ratios.",
+    "physics_realism": "Plausible lighting, shadows, reflections, gravity, and material behavior.",
+    "color_accuracy": "Requested palette and tonal relationships reproduced consistently.",
+    "fine_detail": "Sharpness and fidelity of small features, textures, edges, and micro-structure.",
+    "composition_aesthetics": "Framing, balance, visual hierarchy, and overall aesthetic appeal (human-preference style).",
+    "style_adherence": "Match to the requested artistic or photographic style.",
+}
+
+# Legacy fixed model list (kept for the deprecated PySide6 desktop UI). The web
+# portal now uses the flexible provider families in ``providers.py`` instead.
 MODEL_OPTIONS = [
     ("gpt-image-1", "GPT-Image-1"),
     ("gpt-image-1.5", "GPT-Image-1.5"),
@@ -45,9 +96,12 @@ BENCHMARK_PRESETS = {
         ),
         "dim_map": {
             "prompt_adherence": "Exact elderly watchmaker scene, bench props, visible text, lens and lighting cues.",
-            "text_rendering": "Card must clearly read Caliber 72 with believable printed lettering.",
+            "object_accuracy": "Watchmaker, watches, movements, loupe, screwdriver, and card all present.",
             "object_counting": "Exactly 3 finished watches, 2 open movements, 1 loupe, 1 screwdriver hand pose.",
-            "spatial_reasoning": "Workbench layout and left-side task light should stay coherent and readable.",
+            "attribute_binding": "Brass loupe, oak bench, wire-rimmed glasses bound to the correct objects.",
+            "spatial_relationship": "Workbench layout and left-side task light should stay coherent and readable.",
+            "action_interaction": "Watchmaker actively assembling the watch while holding the screwdriver.",
+            "text_rendering": "Card must clearly read Caliber 72 with believable printed lettering.",
             "anatomy_proportions": "Hands, fingers, posture, and facial proportions should look natural.",
             "physics_realism": "Metal reflections, shadows, and shallow depth should behave physically.",
             "color_accuracy": "Warm amber, oak wood, brass, and skin tones should stay controlled.",
@@ -68,9 +122,12 @@ BENCHMARK_PRESETS = {
         ),
         "dim_map": {
             "prompt_adherence": "Respect alley ramen setup, lantern count, customers, menu text, and neon palette.",
-            "text_rendering": "Blue sign and MISO 12 board should be readable and correctly formed.",
+            "object_accuracy": "Lanterns, chef, customers, bowls, sign, and menu board all present.",
             "object_counting": "Exactly 4 lanterns, 1 chef, 2 customers, and 3 ramen bowls.",
-            "spatial_reasoning": "Chef behind counter, customers seated, bowls foreground, signs overhead.",
+            "attribute_binding": "Yellow raincoats, red lanterns, blue sign bound to the right objects.",
+            "spatial_relationship": "Chef behind counter, customers seated, bowls foreground, signs overhead.",
+            "action_interaction": "Chef serving, customers seated and eating under the rain.",
+            "text_rendering": "Blue sign and MISO 12 board should be readable and correctly formed.",
             "anatomy_proportions": "Human figures should hold natural posture and believable proportions.",
             "physics_realism": "Rain, steam, and wet reflections should align with light sources.",
             "color_accuracy": "Orange, pink, blue, teal, and yellow should separate cleanly.",
@@ -84,10 +141,48 @@ BENCHMARK_PRESETS = {
 
 @dataclass(slots=True)
 class ModelConfig:
+    """A single image-generation deployment to compare.
+
+    The model is identified by its *routing family* plus a free-text
+    ``deployment`` identifier, so any new model version can be onboarded without
+    code changes. Optional ``endpoint``/``api_version``/``path`` overrides allow
+    pointing a single row at a different resource or a non-standard route.
+
+    ``kind`` is retained only for backward compatibility with configs saved by
+    older versions of the portal.
+    """
+
     enabled: bool = True
     name: str = ""
-    kind: str = "gpt-image-1"
+    family: str = ""
     deployment: str = ""
+    model_id: str = ""
+    endpoint: str = ""
+    api_version: str = ""
+    path: str = ""
+    kind: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.family:
+            self.family = family_from_kind(self.kind)
+        if not self.model_id:
+            # FLUX routes by model name; GPT/MAI route by deployment. In both
+            # cases the body "model" defaults to the identifier the user typed,
+            # falling back to the legacy kind for old configs.
+            self.model_id = self.deployment or self.kind
+        if not self.kind:
+            self.kind = self.family
+        if not self.name:
+            self.name = self.deployment or self.kind or self.family
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ModelConfig":
+        allowed = {field_name for field_name in cls.__slots__}
+        payload = {key: value for key, value in data.items() if key in allowed}
+        return cls(**payload)
+
+    def body_model(self) -> str:
+        return (self.model_id or self.deployment or self.kind or "").strip()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -107,6 +202,9 @@ class AppConfig:
     auto_eval: str = "yes"
     eval_detail: str = "high"
     cv_enabled: str = "yes"
+    cs_endpoint: str = ""
+    cs_secret: str = ""
+    cs_api_version: str = "2024-09-01"
     models: list[ModelConfig] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -123,13 +221,17 @@ class AppConfig:
             "auto_eval": self.auto_eval,
             "eval_detail": self.eval_detail,
             "cv_enabled": self.cv_enabled,
+            "cs_endpoint": self.cs_endpoint,
+            "cs_secret": self.cs_secret,
+            "cs_api_version": self.cs_api_version,
             "models": [model.to_dict() for model in self.models],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AppConfig":
-        models = [ModelConfig(**item) for item in data.get("models", [])]
-        payload = {key: value for key, value in data.items() if key != "models"}
+        models = [ModelConfig.from_dict(item) for item in data.get("models", [])]
+        allowed = {field_name for field_name in cls.__slots__ if field_name != "models"}
+        payload = {key: value for key, value in data.items() if key in allowed}
         return cls(models=models, **payload)
 
 
@@ -204,15 +306,40 @@ class ResultRecord:
     error: str | None = None
 
 
+@dataclass(slots=True)
+class SafetyCategory:
+    """One Azure AI Content Safety category result (severity 0/2/4/6)."""
+
+    category: str
+    severity: int
+
+
+@dataclass(slots=True)
+class SafetyResult:
+    """Outcome of the content-safety path for one model x prompt."""
+
+    # "blocked"  -> the model/provider refused to generate (content filter).
+    # "generated" -> an image came back; it was then moderated.
+    # "error"    -> a non-safety failure (network, auth, etc.).
+    outcome: str
+    blocked: bool
+    block_reason: str
+    image_categories: list[SafetyCategory]
+    prompt_categories: list[SafetyCategory]
+    max_image_severity: int
+    raw_payload: dict[str, Any]
+
+
 def sample_models() -> list[ModelConfig]:
     return [
-        ModelConfig(True, "GPT-Image-1", "gpt-image-1", "gpt-image-1"),
-        ModelConfig(True, "GPT-Image-1.5", "gpt-image-1.5", "gpt-image-1.5"),
-        ModelConfig(False, "GPT-Image-2", "gpt-image-2", "gpt-image-2"),
-        ModelConfig(True, "FLUX.2-pro", "flux-2-pro", "FLUX.2-pro"),
-        ModelConfig(False, "FLUX.2-flex", "flux-2-flex", "FLUX.2-flex"),
-        ModelConfig(False, "FLUX.1-Kontext-pro", "flux-kontext-pro", "FLUX.1-Kontext-pro"),
-        ModelConfig(False, "FLUX-1.1-pro", "flux-pro-1.1", "FLUX-1.1-pro"),
-        ModelConfig(False, "MAI-Image-2", "mai-image-2", "MAI-Image-2"),
-        ModelConfig(False, "MAI-Image-2e", "mai-image-2e", "MAI-Image-2e"),
+        ModelConfig(enabled=True, family="gpt-image", deployment="gpt-image-1"),
+        ModelConfig(enabled=True, family="gpt-image", deployment="gpt-image-1.5"),
+        ModelConfig(enabled=False, family="gpt-image", deployment="gpt-image-2"),
+        ModelConfig(enabled=True, family="flux", deployment="FLUX.2-pro"),
+        ModelConfig(enabled=False, family="flux", deployment="FLUX.2-flex"),
+        ModelConfig(enabled=False, family="flux", deployment="FLUX.1-Kontext-pro"),
+        ModelConfig(enabled=False, family="flux", deployment="FLUX-1.1-pro"),
+        ModelConfig(enabled=True, family="mai", deployment="MAI-Image-2"),
+        ModelConfig(enabled=False, family="mai", deployment="MAI-Image-2e"),
+        ModelConfig(enabled=False, family="mai", deployment="MAI-Image-2.5"),
     ]

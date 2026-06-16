@@ -3,6 +3,9 @@ const state = {
   runId: null,
   run: null,
   pollTimer: null,
+  safetyRunId: null,
+  safetyRun: null,
+  safetyPollTimer: null,
   promptGuidance: {
     text: { title: "", dimensionMap: {} },
     edit: { title: "", dimensionMap: {} },
@@ -27,23 +30,21 @@ const state = {
     "rgba(120, 160, 255, ",
     "rgba(157, 118, 255, ",
   ],
-  modelOptions: [
-    ["gpt-image-1", "GPT-Image-1"],
-    ["gpt-image-1.5", "GPT-Image-1.5"],
-    ["gpt-image-2", "GPT-Image-2"],
-    ["flux-2-pro", "FLUX.2-pro"],
-    ["flux-2-flex", "FLUX.2-flex"],
-    ["flux-kontext-pro", "FLUX.1-Kontext-pro"],
-    ["flux-pro-1.1", "FLUX-1.1-pro"],
-    ["mai-image-2", "MAI-Image-2"],
-    ["mai-image-2e", "MAI-Image-2e"],
-  ],
 };
 
 const byId = (id) => document.getElementById(id);
 
-function modelLabel(kind) {
-  return state.modelOptions.find(([value]) => value === kind)?.[1] || kind;
+function providers() {
+  return state.bootstrap?.providers || [];
+}
+
+function providerById(family) {
+  const list = providers();
+  return list.find((item) => item.id === family) || list[0] || null;
+}
+
+function familyLabel(family) {
+  return providerById(family)?.label || family;
 }
 
 async function api(path, options = {}) {
@@ -92,6 +93,9 @@ function loadConfig(config) {
   byId("cvEnabled").value = config.cv_enabled || "yes";
   byId("cvEndpoint").value = config.cv_endpoint || "";
   byId("cvSecret").value = config.cv_secret || "";
+  byId("csEndpoint").value = config.cs_endpoint || "";
+  byId("csSecret").value = config.cs_secret || "";
+  byId("csApiVersion").value = config.cs_api_version || "2024-09-01";
   renderModels(config.models || []);
 }
 
@@ -109,6 +113,9 @@ function collectConfig() {
     cv_enabled: byId("cvEnabled").value,
     cv_endpoint: byId("cvEndpoint").value.trim(),
     cv_secret: byId("cvSecret").value.trim(),
+    cs_endpoint: byId("csEndpoint").value.trim(),
+    cs_secret: byId("csSecret").value.trim(),
+    cs_api_version: byId("csApiVersion").value.trim(),
     models: collectModels(),
   };
 }
@@ -122,23 +129,45 @@ function renderModels(models) {
 function buildModelRow(model = {}) {
   const node = byId("modelRowTemplate").content.firstElementChild.cloneNode(true);
   const enabled = node.querySelector(".model-enabled");
-  const kind = node.querySelector(".model-kind");
+  const nameInput = node.querySelector(".model-name");
+  const family = node.querySelector(".model-family");
   const deployment = node.querySelector(".model-deployment");
-  state.modelOptions.forEach(([value, label]) => {
+  const note = node.querySelector(".model-family-note");
+  const advanced = node.querySelector(".model-advanced");
+  const endpoint = node.querySelector(".model-endpoint");
+  const apiVersion = node.querySelector(".model-api-version");
+  const path = node.querySelector(".model-path");
+  const modelId = node.querySelector(".model-id");
+
+  providers().forEach((provider) => {
     const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    kind.appendChild(option);
+    option.value = provider.id;
+    option.textContent = provider.label;
+    family.appendChild(option);
   });
+
   enabled.checked = model.enabled !== false;
-  kind.value = model.kind || "gpt-image-1";
-  deployment.value = model.deployment || model.name || "";
-  let priorLabel = modelLabel(kind.value);
-  kind.addEventListener("change", () => {
-    if (!deployment.value.trim() || deployment.value.trim() === priorLabel) {
-      deployment.value = modelLabel(kind.value);
+  family.value = model.family || providers()[0]?.id || "gpt-image";
+  deployment.value = model.deployment || "";
+  nameInput.value = model.name && model.name !== model.deployment ? model.name : "";
+  endpoint.value = model.endpoint || "";
+  apiVersion.value = model.api_version || "";
+  path.value = model.path || "";
+  modelId.value = model.model_id || "";
+
+  const applyFamily = () => {
+    const provider = providerById(family.value);
+    if (provider) {
+      deployment.placeholder = provider.identifier_placeholder || "Deployment / model name";
+      const editNote = provider.supports_edit ? "" : " · Image edit not supported (falls back to text-to-image).";
+      note.textContent = `${provider.description || ""}${editNote}`;
     }
-    priorLabel = modelLabel(kind.value);
+  };
+  applyFamily();
+  family.addEventListener("change", applyFamily);
+
+  node.querySelector(".model-advanced-btn").addEventListener("click", () => {
+    advanced.classList.toggle("hidden");
   });
   node.querySelector(".remove-model-btn").addEventListener("click", () => node.remove());
   return node;
@@ -147,31 +176,26 @@ function buildModelRow(model = {}) {
 function collectModels() {
   const raw = [...document.querySelectorAll(".model-row")].map((row) => ({
     enabled: row.querySelector(".model-enabled").checked,
-    kind: row.querySelector(".model-kind").value,
+    family: row.querySelector(".model-family").value,
     deployment: row.querySelector(".model-deployment").value.trim(),
+    nameInput: row.querySelector(".model-name").value.trim(),
+    endpoint: row.querySelector(".model-endpoint").value.trim(),
+    api_version: row.querySelector(".model-api-version").value.trim(),
+    path: row.querySelector(".model-path").value.trim(),
+    model_id: row.querySelector(".model-id").value.trim(),
   }));
-  const counts = new Map();
-  raw.forEach((model) => {
-    const label = modelLabel(model.kind);
-    counts.set(label, (counts.get(label) || 0) + 1);
-  });
   const usedNames = new Set();
   return raw.map((model, index) => {
-    const label = modelLabel(model.kind);
-    let name = label;
-    if ((counts.get(label) || 0) > 1) {
-      name = `${label} · ${model.deployment || index + 1}`;
-    }
+    const base = model.nameInput || model.deployment || `${familyLabel(model.family)} ${index + 1}`;
+    let name = base;
     let suffix = 2;
     while (usedNames.has(name)) {
-      name = `${label} · ${model.deployment || suffix}`;
+      name = `${base} · ${suffix}`;
       suffix += 1;
     }
     usedNames.add(name);
-    return {
-      ...model,
-      name,
-    };
+    const { nameInput, ...rest } = model;
+    return { ...rest, name };
   });
 }
 
@@ -643,9 +667,9 @@ function updateResultCard(node, result) {
     return;
   }
   node.querySelector(".result-title").textContent = result.model.name;
-  const metaBits = [`${result.model.kind}`, result.model.deployment || "-"];
+  const metaBits = [`${familyLabel(result.model.family || result.model.kind)}`, result.model.deployment || "-"];
   if (result.generation?.editFallbackUsed) {
-    metaBits.push("MAI edit fallback");
+    metaBits.push("Edit not supported · text fallback");
   }
   if (state.run?.promptGuidance?.usedEnrichment) {
     metaBits.push("Prompt enriched");
@@ -944,8 +968,9 @@ function renderRadar(entries) {
   const cx = width / 2;
   const cy = height / 2;
   const radius = Math.min(cx, cy) - 58;
-  const labels = ["Prompt", "Text", "Count", "Spatial", "Anatomy", "Physics", "Color", "Detail", "Comp.", "Style"];
   const dimKeys = Object.keys(state.bootstrap.dimLabels);
+  const shortMap = state.bootstrap.dimShort || {};
+  const labels = dimKeys.map((key) => shortMap[key] || state.bootstrap.dimLabels[key] || key);
   ctx.clearRect(0, 0, width, height);
 
   for (let level = 1; level <= 5; level += 1) {
@@ -1017,6 +1042,182 @@ function renderRadar(entries) {
   `).join("");
 }
 
+function severityLabel(severity) {
+  const map = state.bootstrap?.severityLabels || {};
+  return map[String(severity)] || `Sev ${severity}`;
+}
+
+function renderSafetyPrompts() {
+  const list = byId("safetyPromptList");
+  if (!list) {
+    return;
+  }
+  const prompts = state.bootstrap?.safetyPrompts || [];
+  const byCategory = new Map();
+  prompts.forEach((prompt) => {
+    if (!byCategory.has(prompt.category)) {
+      byCategory.set(prompt.category, []);
+    }
+    byCategory.get(prompt.category).push(prompt);
+  });
+  list.innerHTML = "";
+  byCategory.forEach((items, category) => {
+    const group = document.createElement("div");
+    group.className = "safety-group";
+    const heading = document.createElement("h3");
+    heading.textContent = category;
+    group.appendChild(heading);
+    items
+      .sort((a, b) => a.level - b.level)
+      .forEach((prompt) => {
+        const label = document.createElement("label");
+        label.className = "safety-prompt-item";
+        label.innerHTML = `
+          <input type="checkbox" class="safety-prompt-check" value="${escapeHtml(prompt.id)}" checked>
+          <span class="safety-level">L${prompt.level}</span>
+          <span class="safety-prompt-text">
+            <strong>${escapeHtml(prompt.label)}</strong>
+            <em>${escapeHtml(prompt.prompt)}</em>
+            <small>Expected: ${escapeHtml(prompt.expectation)}</small>
+          </span>`;
+        group.appendChild(label);
+      });
+    list.appendChild(group);
+  });
+}
+
+function selectedSafetyPromptIds() {
+  return [...document.querySelectorAll(".safety-prompt-check:checked")].map((input) => input.value);
+}
+
+async function startSafetyRun() {
+  const models = enabledModels();
+  if (!models.length) {
+    alert("Enable at least one model.");
+    return;
+  }
+  const promptIds = selectedSafetyPromptIds();
+  if (!promptIds.length) {
+    alert("Select at least one safety prompt.");
+    return;
+  }
+  showRequestOverlay("Starting content safety probe...", "Sending escalating-severity prompts to each model.");
+  byId("runSafetyBtn").disabled = true;
+  try {
+    const response = await api("/api/safety", {
+      method: "POST",
+      body: JSON.stringify({
+        config: collectConfig(),
+        models,
+        promptIds,
+        scanPrompt: byId("safetyScanPrompt").checked,
+      }),
+    });
+    state.safetyRunId = response.runId;
+    state.safetyRun = null;
+    byId("safetyPanel").classList.remove("hidden");
+    byId("safetyGrid").innerHTML = "";
+    startSafetyPolling();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    hideRequestOverlay();
+    byId("runSafetyBtn").disabled = false;
+  }
+}
+
+function startSafetyPolling() {
+  stopSafetyPolling();
+  refreshSafetyRun();
+  state.safetyPollTimer = window.setInterval(refreshSafetyRun, 1500);
+}
+
+function stopSafetyPolling() {
+  if (state.safetyPollTimer) {
+    window.clearInterval(state.safetyPollTimer);
+    state.safetyPollTimer = null;
+  }
+}
+
+async function refreshSafetyRun() {
+  if (!state.safetyRunId) {
+    return;
+  }
+  const run = await api(`/api/runs/${state.safetyRunId}`);
+  state.safetyRun = run;
+  renderSafetyRun(run);
+  if (run.status === "complete") {
+    stopSafetyPolling();
+  }
+}
+
+function safetyOutcomeBadge(safety) {
+  if (!safety) {
+    return '<span class="safety-badge pending">Pending</span>';
+  }
+  if (safety.outcome === "blocked") {
+    return '<span class="safety-badge gated">Gated by model</span>';
+  }
+  if (safety.outcome === "generated") {
+    return '<span class="safety-badge produced">Produced image</span>';
+  }
+  return '<span class="safety-badge error">Error</span>';
+}
+
+function safetyCategoriesHtml(categories) {
+  if (!categories || !categories.length) {
+    return "";
+  }
+  return `<div class="safety-cats">${categories
+    .map((cat) => {
+      const sev = Number(cat.severity || 0);
+      const cls = sev >= 6 ? "high" : sev >= 4 ? "medium" : sev >= 2 ? "low" : "safe";
+      return `<span class="safety-cat ${cls}">${escapeHtml(cat.category)}: ${severityLabel(sev)}</span>`;
+    })
+    .join("")}</div>`;
+}
+
+function renderSafetyRun(run) {
+  const pill = byId("safetyStatus");
+  pill.textContent = `${run.progress.label} ${run.progress.done}/${run.progress.total}`;
+  byId("safetyProgressFill").style.width = run.progress.total
+    ? `${Math.round((run.progress.done / run.progress.total) * 100)}%`
+    : "0%";
+  const promptsById = new Map((run.prompts || []).map((prompt) => [prompt.id, prompt]));
+  const grid = byId("safetyGrid");
+  grid.innerHTML = "";
+  run.order.forEach((key) => {
+    const cell = run.results[key];
+    const prompt = promptsById.get(cell.promptId) || {};
+    const safety = cell.safety;
+    const card = document.createElement("article");
+    card.className = "safety-card";
+    const image = safety && safety.image
+      ? `<img class="safety-thumb" src="${safety.image}" alt="Generated image">`
+      : '<div class="safety-thumb placeholder"></div>';
+    const moderation = safety
+      ? `${safetyCategoriesHtml(safety.imageCategories)}
+         ${safety.promptCategories && safety.promptCategories.length
+            ? `<div class="safety-sub">Prompt scan:${safetyCategoriesHtml(safety.promptCategories)}</div>`
+            : ""}
+         ${safety.blockReason ? `<p class="safety-reason">${escapeHtml(safety.blockReason)}</p>` : ""}
+         ${safety.moderationError ? `<p class="safety-reason">${escapeHtml(safety.moderationError)}</p>` : ""}`
+      : `<p class="safety-reason">${escapeHtml(cell.status)}</p>`;
+    card.innerHTML = `
+      <div class="safety-card-head">
+        <div>
+          <h3>${escapeHtml(cell.model.name)}</h3>
+          <p class="safety-meta">${escapeHtml(prompt.category || "")} · L${prompt.level || "?"} · ${escapeHtml(prompt.label || "")}</p>
+        </div>
+        ${safetyOutcomeBadge(safety)}
+      </div>
+      <p class="safety-prompt-line">${escapeHtml(prompt.prompt || "")}</p>
+      ${image}
+      ${moderation}`;
+    grid.appendChild(card);
+  });
+}
+
 function bindEvents() {
   byId("addModelBtn").addEventListener("click", () => {
     byId("modelsList").appendChild(buildModelRow());
@@ -1035,6 +1236,13 @@ function bindEvents() {
   byId("editGenerateBenchmarkBtn").addEventListener("click", () => generateBenchmark("edit"));
   byId("runTextBtn").addEventListener("click", () => startRun("text"));
   byId("runEditBtn").addEventListener("click", () => startRun("edit"));
+  byId("runSafetyBtn").addEventListener("click", () => startSafetyRun());
+  byId("safetySelectAllBtn").addEventListener("click", () => {
+    document.querySelectorAll(".safety-prompt-check").forEach((input) => { input.checked = true; });
+  });
+  byId("safetyClearBtn").addEventListener("click", () => {
+    document.querySelectorAll(".safety-prompt-check").forEach((input) => { input.checked = false; });
+  });
   byId("exportReportBtn").addEventListener("click", () => exportReport());
   byId("reEvalBtn").addEventListener("click", () => triggerEvaluation(null));
   byId("copyLogBtn").addEventListener("click", () => navigator.clipboard.writeText(byId("logView").textContent));
@@ -1066,6 +1274,7 @@ async function boot() {
   bindEvents();
   state.bootstrap = await api("/api/bootstrap");
   loadConfig(state.bootstrap.config);
+  renderSafetyPrompts();
   renderBenchAnnotation("Benchmark", {}, "text");
   renderBenchAnnotation("Benchmark", {}, "edit");
   setMaskMode("paint");
@@ -1074,6 +1283,7 @@ async function boot() {
 }
 
 window.addEventListener("beforeunload", stopPolling);
+window.addEventListener("beforeunload", stopSafetyPolling);
 window.addEventListener("resize", () => {
   if (state.run) {
     renderComparison(state.run);

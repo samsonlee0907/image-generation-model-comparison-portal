@@ -73,6 +73,18 @@
           <span>CV API Key</span>
           <input id="cvSecret" type="password">
         </label>
+        <label>
+          <span>Content Safety Endpoint</span>
+          <input id="csEndpoint" type="text" placeholder="https://<resource>.cognitiveservices.azure.com">
+        </label>
+        <label>
+          <span>Content Safety Key</span>
+          <input id="csSecret" type="password">
+        </label>
+        <label>
+          <span>Content Safety API Version</span>
+          <input id="csApiVersion" type="text" placeholder="2024-09-01">
+        </label>
       </div>
     </section>
 
@@ -87,7 +99,8 @@
       <div class="models-header">
         <span>Use</span>
         <span>Model Name</span>
-        <span>Deployment Name</span>
+        <span>Family</span>
+        <span>Identifier</span>
         <span>Actions</span>
       </div>
       <div id="modelsList" class="models-list"></div>
@@ -97,6 +110,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="text">Text to Image</button>
         <button class="tab" data-tab="edit">Image Edit</button>
+        <button class="tab" data-tab="safety">Content Safety</button>
       </div>
 
       <div class="tab-pane active" id="tab-text">
@@ -197,6 +211,30 @@
         </div>
         <button id="runEditBtn" class="primary">Generate Edit and Compare</button>
       </div>
+
+      <div class="tab-pane" id="tab-safety">
+        <div class="benchmark-card">
+          <div class="panel-head">
+            <h2>Content Safety Probe</h2>
+          </div>
+          <p class="status-text">
+            Sends escalating-severity (L1&ndash;L5) prompts to every enabled model to see which
+            <strong>gate</strong> the request vs. <strong>produce</strong> an image. Any produced image is then
+            moderated with Azure AI Content Safety (Hate / Sexual / Violence / SelfHarm). Configure a
+            Content Safety resource in Global API Settings to enable image &amp; prompt moderation.
+          </p>
+          <div class="row-actions">
+            <label class="toggle">
+              <input id="safetyScanPrompt" type="checkbox" checked>
+              <span>Also scan prompt text</span>
+            </label>
+            <button id="safetySelectAllBtn" type="button" class="ghost">Select All</button>
+            <button id="safetyClearBtn" type="button" class="ghost">Clear</button>
+          </div>
+        </div>
+        <div id="safetyPromptList" class="safety-prompt-list"></div>
+        <button id="runSafetyBtn" class="primary">Run Content Safety Probe</button>
+      </div>
     </section>
 
     <section class="panel">
@@ -231,6 +269,17 @@
       </div>
     </section>
 
+    <section id="safetyPanel" class="panel hidden">
+      <div class="panel-head">
+        <h2>Content Safety Results</h2>
+        <span id="safetyStatus" class="status-pill">Idle</span>
+      </div>
+      <div class="progress-rail">
+        <div id="safetyProgressFill" class="progress-fill"></div>
+      </div>
+      <div id="safetyGrid" class="safety-grid"></div>
+    </section>
+
     <section class="panel">
       <div class="panel-head">
         <h2>Error Log</h2>
@@ -246,13 +295,38 @@
 
   <template id="modelRowTemplate">
     <div class="model-row">
-      <label class="toggle">
-        <input class="model-enabled" type="checkbox" checked>
-        <span>Use</span>
-      </label>
-      <select class="model-kind"></select>
-      <input class="model-deployment" type="text" placeholder="Deployment Name">
-      <button class="ghost remove-model-btn" type="button">Remove</button>
+      <div class="model-row-main">
+        <label class="toggle">
+          <input class="model-enabled" type="checkbox" checked>
+          <span>Use</span>
+        </label>
+        <input class="model-name" type="text" placeholder="Display name (optional)">
+        <select class="model-family"></select>
+        <input class="model-deployment" type="text" placeholder="Deployment / model name">
+        <div class="model-row-actions">
+          <button class="ghost model-advanced-btn" type="button">Advanced</button>
+          <button class="ghost remove-model-btn" type="button">Remove</button>
+        </div>
+      </div>
+      <p class="model-family-note"></p>
+      <div class="model-advanced hidden">
+        <label>
+          <span>Endpoint override</span>
+          <input class="model-endpoint" type="text" placeholder="Leave blank to use Global Endpoint">
+        </label>
+        <label>
+          <span>API version override</span>
+          <input class="model-api-version" type="text" placeholder="Leave blank for family default">
+        </label>
+        <label>
+          <span>Request path override</span>
+          <input class="model-path" type="text" placeholder="Optional full path override">
+        </label>
+        <label>
+          <span>Body model id</span>
+          <input class="model-id" type="text" placeholder="Optional model id sent in request body">
+        </label>
+      </div>
     </div>
   </template>
 

@@ -1,61 +1,33 @@
 # Image Generation Model Comparison Portal
 
-Image Generation Model Comparison Portal is an application for comparing image generation models side by side. It supports both text-to-image and image-edit workflows, benchmark prompt generation, concurrent evaluation, bounding-box visualization, and PPTX report export.
+Image Generation Model Comparison Portal is an application for comparing image generation models side by side. It supports both text-to-image and image-edit workflows, benchmark prompt generation, concurrent evaluation, bounding-box visualization, a dedicated content-safety probe, and PPTX report export.
+
+Models are onboarded **flexibly**: instead of choosing from a fixed list of hard-coded type + version
+pairs, you pick a routing **family** and enter your own deployment / model identifier — so new models
+such as `MAI-Image-2.5` work without any code change.
 
 ## What It Does
 
 - Compares multiple image-generation deployments in one run.
+- Lets you add any model by routing **family** + free-text deployment (with optional endpoint / API-version / path overrides).
 - Supports text-to-image and image-edit benchmarking.
 - Generates benchmark prompts and allows prompt refinement before execution.
 - Runs generation, CV analysis, and evaluator scoring concurrently.
+- Scores image quality on a **benchmark-aligned, data-driven** metric set (GenEval / T2I-CompBench / DPG-Bench axes).
+- Provides a separate **Content Safety** probe that tests model gating across severity tiers and moderates produced images with Azure AI Content Safety.
 - Draws bounding boxes from CV output and lets users toggle them on or off.
 - Provides retry actions for failed image generations.
 - Exports generated images and evaluation results to PPTX.
 
+## Documentation
+
+- [Model Routing](docs/MODEL_ROUTING.md) — how each family routes its API path + request body, and how to add models/families.
+- [Image Quality Evaluation](docs/IMAGE_QUALITY_EVALUATION.md) — original methodology plus the refreshed, benchmark-aligned metrics.
+- [Content Safety Evaluation](docs/CONTENT_SAFETY_EVALUATION.md) — the severity-tiered safety probe and Azure AI Content Safety moderation.
+
 ## Evaluation Dimensions
 
-Each generated image is scored on **10 dimensions**, with an integer score from **1 to 10** for each dimension. The portal also produces an **overall score**, plus short notes, strengths, weaknesses, and a summary for each result.
-
-### 1. Prompt Adherence
-Measures how well the image follows the requested scene, subject, objects, constraints, and intent from the prompt.
-
-### 2. Text Rendering
-Checks whether visible text in the image is readable, correctly spelled, and formed in a believable way.
-
-### 3. Object Counting
-Evaluates whether the image contains the correct number of requested objects, people, or repeated elements.
-
-### 4. Spatial Reasoning
-Measures whether objects appear in the right positions and relationships, such as foreground/background placement, left/right ordering, and scene layout.
-
-### 5. Anatomy
-Evaluates human or creature body coherence, including pose, gesture, limb placement, hand structure, body ratios, and visible finger counts.
-
-Note:
-For images containing people, this dimension does **not** depend heavily on face identity or facial sharpness, because safety filtering or model behavior may blur or suppress faces before analysis.
-
-### 6. Physics & Realism
-Checks whether lighting, shadows, reflections, gravity, material behavior, and scene interactions look physically believable.
-
-### 7. Color Accuracy
-Measures whether the requested palette, color relationships, and key visual tones are reproduced correctly and consistently.
-
-### 8. Fine Detail
-Evaluates sharpness and fidelity of small features such as textures, edges, materials, surface detail, and micro-structure.
-
-### 9. Composition
-Measures framing, balance, visual hierarchy, use of space, camera feel, and overall image aesthetics.
-
-### 10. Style Adherence
-Checks whether the generated image matches the requested artistic or photographic style, such as editorial realism, cinematic photography, illustration, or cyberpunk mood.
-
-## How Scoring Works
-
-- Each dimension receives a score from `1` to `10`
-- The evaluator also returns a short note for every dimension
-- An `overall_score` summarizes the image quality across all 10 dimensions
-- The result may be augmented with Azure AI Vision analysis when CV is enabled
-- Bounding boxes can be shown on top of the image when CV detects objects
+Each generated image is scored on a **data-driven set of dimensions**, with an integer score from **1 to 10** for each dimension, plus an **overall score**, notes, strengths, weaknesses, and a summary. The dimensions are aligned with widely used public text-to-image benchmarks (GenEval, T2I-CompBench, DPG-Bench) and can be expanded without code changes to routing or UI. See [Image Quality Evaluation](docs/IMAGE_QUALITY_EVALUATION.md) for the full list, benchmark provenance, and how the original 10-dimension methodology maps onto the current set.
 
 ## Requirements
 
@@ -102,13 +74,15 @@ Set these values before starting a comparison:
   The model used to generate benchmark prompts and score image quality.
 - `CV Endpoint` and `CV API Key`
   Optional if you want to use a separate Azure AI Vision resource.
+- `Content Safety Endpoint`, `Content Safety Key`, `Content Safety API Version`
+  Optional Azure AI Content Safety resource used by the Content Safety probe to moderate produced images and prompt text. Defaults to API version `2024-09-01`.
 - Model rows
-  Enable the image-generation deployments you want to compare and enter their deployment names.
+  Enable the image-generation deployments you want to compare. For each row pick a **Family** (GPT-Image, FLUX, MAI-Image, or Custom) and enter your **deployment / model identifier**. Use **Advanced** to override the endpoint, API version, request path, or body model id per model.
 
 ![Portal Config](img/portal-config.png)
 
 - `Models`
-  Choose the models that you'd like to compare across (provided that your endpoints have been created in Microsoft Foundry) through selecting the right models by name and enter the deployment name created.
+  Add a row per model, choose its routing family, and type the deployment/model name created in Microsoft Foundry (or any compatible endpoint). New models — including versions the app has never seen, like `MAI-Image-2.5` — are onboarded just by typing the name; no code change is needed. See [Model Routing](docs/MODEL_ROUTING.md) for how each family routes its requests.
 
 ![Model Selection](img/portal-model-selection.png)
 
@@ -131,6 +105,16 @@ Set these values before starting a comparison:
 5. Click `Generate Edit and Compare`.
 
 ![Image Edit Workflow](img/image-edit-workflow.png)
+
+## Content Safety Flow
+
+1. Open the `Content Safety` tab.
+2. Select the severity-tiered (L1–L5) prompts to probe across the Hate / Sexual / Violence / Self-Harm categories.
+3. Optionally enable `Also scan prompt text`.
+4. Click `Run Content Safety Probe`.
+5. For each model × prompt the portal reports whether the model **gated** the request or **produced** an image, and moderates any produced image with Azure AI Content Safety (per-category severities).
+
+See [Content Safety Evaluation](docs/CONTENT_SAFETY_EVALUATION.md) for the probe design, severity scale, and responsible-use notes.
 
 ## Results And Analysis
 

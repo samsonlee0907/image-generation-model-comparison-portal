@@ -15,6 +15,7 @@ from image_generation_model_comparison_portal.models import (
     AppConfig,
     BoundingBox,
     CvResult,
+    DIM_GUIDANCE,
     DIM_KEYS,
     DIM_LABELS,
     EvalDimension,
@@ -23,68 +24,112 @@ from image_generation_model_comparison_portal.models import (
     ModelConfig,
     Usage,
 )
+from image_generation_model_comparison_portal.providers import (
+    extract_image,
+    get_provider,
+)
+from image_generation_model_comparison_portal.safety import SAFETY_CATEGORIES, severity_label
+
+
+def _dimension_schema() -> str:
+    parts = ['"%s":{"score":8,"note":"..."}' % key for key in DIM_KEYS]
+    return "{" + ",".join(parts) + "}"
+
+
+def _bench_dimension_schema() -> str:
+    parts = ['"%s":"<15w>"' % key for key in DIM_KEYS]
+    return "{" + ",".join(parts) + "}"
+
+
+def _dimension_guidance_block() -> str:
+    return "\n".join(f"- {DIM_LABELS[key]} ({key}): {DIM_GUIDANCE[key]}" for key in DIM_KEYS)
 
 
 BENCH_SYS = (
     "You are a benchmark prompt engineer for AI image generation. Given a theme, generate a prompt "
-    "(~120-180 words) that stress-tests all 10 dimensions. Include visible text, exact counts, spatial "
-    "positions, anatomy, light/shadows, colors, textures, and camera parameters. Respond with JSON only in "
-    'this exact schema: {"prompt":"...","title":"2-4 words","dimension_map":{"prompt_adherence":"<15w>",'
-    '"text_rendering":"<15w>","object_counting":"<15w>","spatial_reasoning":"<15w>","anatomy_proportions":"<15w>",'
-    '"physics_realism":"<15w>","color_accuracy":"<15w>","fine_detail":"<15w>","composition_aesthetics":"<15w>",'
-    '"style_adherence":"<15w>"}}'
+    f"(~120-180 words) that stress-tests all {len(DIM_KEYS)} evaluation dimensions. Include visible text, "
+    "exact counts, attribute bindings (color/material/texture tied to specific objects), spatial and "
+    "non-spatial relationships (actions/interactions), anatomy, light/shadows, colors, textures, and camera "
+    "parameters. The dimensions and what they measure:\n"
+    f"{_dimension_guidance_block()}\n"
+    'Respond with JSON only in this exact schema: {"prompt":"...","title":"2-4 words","dimension_map":'
+    f"{_bench_dimension_schema()}" + "}"
 )
 
-EVAL_SYS = """You are an expert AI image evaluator. Score 10 dimensions with integer scores from 1 to 10.
-You receive: 1) the original prompt, 2) the generated image, 3) optional Azure AI Vision analysis.
-When CV data is provided, cross-reference detected object counts against prompt quantities. CV may miss small or occluded objects, so use it as evidence, not as the only source.
-For images containing people, do not depend on face identity, facial detail, or facial sharpness because safety filtering or model behavior may blur, mask, or suppress faces before analysis.
-In the anatomy_proportions dimension, prioritize whole-body coherence: gesture, pose, limb placement, shoulder-to-arm-to-hand ratios, hand structure, visible finger counts, body balance, and subject placement in frame.
-If faces are obscured or low-detail, do not penalize that by itself unless the prompt explicitly requires recognizable facial identity or facial expression and the rest of the body evidence also fails.
-Every dimension must include "score" and "note". Provide "strengths" with 2 items, "weaknesses" with 2 items, and "summary" with 2-3 sentences.
-Respond with JSON only in this shape:
-{"overall_score":7.5,"dimensions":{"prompt_adherence":{"score":8,"note":"..."},"text_rendering":{"score":6,"note":"..."},"object_counting":{"score":9,"note":"..."},"spatial_reasoning":{"score":7,"note":"..."},"anatomy_proportions":{"score":8,"note":"..."},"physics_realism":{"score":7,"note":"..."},"color_accuracy":{"score":9,"note":"..."},"fine_detail":{"score":8,"note":"..."},"composition_aesthetics":{"score":8,"note":"..."},"style_adherence":{"score":7,"note":"..."}},"strengths":["s1","s2"],"weaknesses":["w1","w2"],"summary":"2-3 sentences."}"""
+EVAL_SYS = (
+    f"You are an expert AI image evaluator. Score {len(DIM_KEYS)} dimensions with integer scores from 1 to 10.\n"
+    "The dimensions are aligned with widely used public text-to-image benchmarks (GenEval, T2I-CompBench, "
+    "DPG-Bench) and human-preference scoring. Each dimension and what it measures:\n"
+    f"{_dimension_guidance_block()}\n"
+    "You receive: 1) the original prompt, 2) the generated image, 3) optional Azure AI Vision analysis.\n"
+    "When CV data is provided, cross-reference detected object counts against prompt quantities. CV may miss "
+    "small or occluded objects, so use it as evidence, not as the only source.\n"
+    "For images containing people, do not depend on face identity, facial detail, or facial sharpness because "
+    "safety filtering or model behavior may blur, mask, or suppress faces before analysis.\n"
+    "In the anatomy_proportions dimension, prioritize whole-body coherence: gesture, pose, limb placement, "
+    "shoulder-to-arm-to-hand ratios, hand structure, visible finger counts, body balance, and subject placement "
+    "in frame.\n"
+    "If faces are obscured or low-detail, do not penalize that by itself unless the prompt explicitly requires "
+    "recognizable facial identity or facial expression and the rest of the body evidence also fails.\n"
+    'Every dimension must include "score" and "note". Provide "strengths" with 2 items, "weaknesses" with 2 '
+    'items, and "summary" with 2-3 sentences.\n'
+    "Respond with JSON only in this shape:\n"
+    '{"overall_score":7.5,"dimensions":'
+    f"{_dimension_schema()}"
+    ',"strengths":["s1","s2"],"weaknesses":["w1","w2"],"summary":"2-3 sentences."}'
+)
 
-PROMPT_ENRICH_SYS = """You are a prompt enrichment assistant for AI image generation benchmarking.
-Your job is to preserve the user's intent while rewriting it into a richer production-ready image prompt and to derive 10-dimension quality targets for later evaluation.
-If source images are provided, first infer the important visual anchors that should be preserved unless the edit request explicitly changes them.
-When the prompt includes people, make anatomy_proportions targets focus on pose, gesture, limb ratios, hand structure, and finger visibility rather than face identity or facial detail.
-Return JSON only in this shape:
-{"enriched_prompt":"...","summary":"1-2 sentences","source_summary":"...","dimension_map":{"prompt_adherence":"...","text_rendering":"...","object_counting":"...","spatial_reasoning":"...","anatomy_proportions":"...","physics_realism":"...","color_accuracy":"...","fine_detail":"...","composition_aesthetics":"...","style_adherence":"..."}}"""
+PROMPT_ENRICH_SYS = (
+    "You are a prompt enrichment assistant for AI image generation benchmarking.\n"
+    "Your job is to preserve the user's intent while rewriting it into a richer production-ready image prompt "
+    f"and to derive {len(DIM_KEYS)}-dimension quality targets for later evaluation.\n"
+    "If source images are provided, first infer the important visual anchors that should be preserved unless the "
+    "edit request explicitly changes them.\n"
+    "When the prompt includes people, make anatomy_proportions targets focus on pose, gesture, limb ratios, hand "
+    "structure, and finger visibility rather than face identity or facial detail.\n"
+    "Return JSON only in this shape:\n"
+    '{"enriched_prompt":"...","summary":"1-2 sentences","source_summary":"...","dimension_map":'
+    f"{_bench_dimension_schema()}" + "}"
+)
 
 
-def is_gpt(kind: str) -> bool:
-    return kind.startswith("gpt-image")
+class ApiError(RuntimeError):
+    """API failure that preserves the HTTP status and raw error payload.
+
+    The content-safety path inspects ``payload``/``status`` to distinguish a
+    safety/content-filter block from an ordinary failure.
+    """
+
+    def __init__(self, message: str, *, status: int = 0, payload: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+        self.payload = payload or {}
 
 
-def is_flux(kind: str) -> bool:
-    return kind.startswith("flux-")
+# Markers that indicate a request was blocked by a content/safety filter rather
+# than failing for an unrelated reason.
+_CONTENT_FILTER_MARKERS = (
+    "content_filter",
+    "content management policy",
+    "content_policy_violation",
+    "responsibleaipolicy",
+    "responsible ai",
+    "safety system",
+    "content filter",
+    "was filtered",
+    "moderation_blocklist",
+    "blocklist",
+    "jailbreak",
+    "flagged",
+    "image_generation_user_error",
+)
 
 
-def is_mai(kind: str) -> bool:
-    return kind.startswith("mai-")
-
-
-def flux_name(model: ModelConfig) -> str:
-    mapping = {
-        "flux-2-pro": "FLUX.2-pro",
-        "flux-2-flex": "FLUX.2-flex",
-        "flux-kontext-pro": "FLUX.1-Kontext-pro",
-        "flux-pro-1.1": "FLUX-1.1-pro",
-    }
-    canonical = mapping.get(model.kind, model.kind)
-    raw = (model.deployment or "").strip()
-    if not raw:
-        return canonical
-    normalized = "".join(ch for ch in raw.lower() if ch.isalnum())
-    aliases = {
-        canonical.lower().replace(".", "").replace("-", ""),
-        model.kind.lower().replace(".", "").replace("-", ""),
-        canonical.lower().replace(".", "").replace("-", "").replace("_", ""),
-    }
-    if normalized in aliases:
-        return canonical
-    return raw
+def is_content_filter_block(message: str, payload: dict[str, Any] | None = None) -> bool:
+    blob = (message or "").lower()
+    if payload:
+        blob += " " + json.dumps(payload).lower()
+    return any(marker in blob for marker in _CONTENT_FILTER_MARKERS)
 
 
 def parse_size(value: str | None) -> tuple[int, int]:
@@ -105,12 +150,10 @@ class ApiClient:
         self.config = config
         self.timeout = 180
 
-    def _timeout_for(self, operation: str, kind: str | None = None) -> int:
+    def _timeout_for(self, operation: str, family: str | None = None) -> int:
         if operation in {"generate", "edit"}:
-            if kind == "gpt-image-2":
-                return 600
-            if kind and kind.startswith("gpt-image"):
-                return 420
+            if family == "gpt-image":
+                return 480
             return 300
         if operation == "eval":
             return 240
@@ -122,20 +165,34 @@ class ApiClient:
     def _vision_endpoint(self) -> str:
         return (self.config.cv_endpoint or self.config.global_endpoint).rstrip("/")
 
+    def _cs_endpoint(self) -> str:
+        return (self.config.cs_endpoint or self.config.cv_endpoint or self.config.global_endpoint).rstrip("/")
+
     def _secret(self) -> str:
         return self.config.global_secret.strip()
 
     def _vision_secret(self) -> str:
         return (self.config.cv_secret or self.config.global_secret).strip()
 
-    def _headers(self, kind: str, json_content: bool = True) -> dict[str, str]:
+    def _cs_secret(self) -> str:
+        return (self.config.cs_secret or self.config.cv_secret or self.config.global_secret).strip()
+
+    def _auth_headers(self, auth: str, json_content: bool = True) -> dict[str, str]:
+        """Build auth headers for a provider auth style.
+
+        ``auth`` is one of ``api-key``, ``bearer`` or ``api-key+bearer`` (see
+        :mod:`providers`). When the resource uses bearer auth globally, an
+        Authorization header is always sent instead of the Azure api-key header.
+        """
+
         headers: dict[str, str] = {}
         if json_content:
             headers["Content-Type"] = "application/json"
         secret = self._secret()
         if self.config.global_auth_type == "apiKey":
-            headers["api-key"] = secret
-            if is_flux(kind):
+            if auth in {"api-key", "api-key+bearer"}:
+                headers["api-key"] = secret
+            if auth in {"bearer", "api-key+bearer"}:
                 headers["Authorization"] = f"Bearer {secret}"
         else:
             headers["Authorization"] = f"Bearer {secret}"
@@ -144,6 +201,17 @@ class ApiClient:
     def _vision_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/octet-stream"}
         secret = self._vision_secret()
+        if self.config.global_auth_type == "apiKey":
+            headers["Ocp-Apim-Subscription-Key"] = secret
+        else:
+            headers["Authorization"] = f"Bearer {secret}"
+        return headers
+
+    def _cs_headers(self, json_content: bool = True) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if json_content:
+            headers["Content-Type"] = "application/json"
+        secret = self._cs_secret()
         if self.config.global_auth_type == "apiKey":
             headers["Ocp-Apim-Subscription-Key"] = secret
         else:
@@ -167,7 +235,7 @@ class ApiClient:
         if response.ok:
             return
         message = self._error_message(response, payload)
-        raise RuntimeError(message)
+        raise ApiError(message, status=response.status_code, payload=payload)
 
     def _extract_usage(self, payload: dict[str, Any]) -> Usage | None:
         usage = payload.get("usage")
@@ -186,32 +254,70 @@ class ApiClient:
             f"/chat/completions?api-version={quote(self.config.gpt_api_version, safe='')}"
         )
 
-    def _request_flux_json(self, url: str, kind: str, body: dict[str, Any], canonical_model: str | None = None) -> tuple[requests.Response, dict[str, Any], dict[str, Any]]:
-        timeout = self._timeout_for("generate", kind)
-        candidates: list[dict[str, Any]] = [copy.deepcopy(body)]
-        if canonical_model and canonical_model != body.get("model"):
-            canonical_body = copy.deepcopy(body)
-            canonical_body["model"] = canonical_model
-            candidates.append(canonical_body)
-        compact_candidates: list[dict[str, Any]] = []
-        for candidate in list(candidates):
-            no_output = copy.deepcopy(candidate)
-            no_output.pop("output_format", None)
-            compact_candidates.append(no_output)
-            no_output_num = copy.deepcopy(no_output)
-            no_output_num.pop("num_images", None)
-            compact_candidates.append(no_output_num)
+    def _resolve_endpoint(self, model: ModelConfig) -> str:
+        return (model.endpoint or self.config.global_endpoint).rstrip("/")
+
+    def _resolve_api_version(self, model: ModelConfig, spec) -> str:
+        if model.api_version:
+            return model.api_version
+        if spec.api_version_field:
+            configured = getattr(self.config, spec.api_version_field, "")
+            if configured:
+                return configured
+        return spec.default_api_version
+
+    def _build_url(self, template: str, model: ModelConfig, spec) -> str:
+        return template.format(
+            endpoint=self._resolve_endpoint(model),
+            deployment=quote(model.deployment, safe=""),
+            model_id=quote(model.body_model(), safe=""),
+            api_version=quote(self._resolve_api_version(model, spec), safe=""),
+        )
+
+    def _generation_url(self, model: ModelConfig) -> str:
+        spec = get_provider(model.family)
+        template = model.path.strip() or spec.generate_template
+        return self._build_url(template, model, spec)
+
+    def _edit_url(self, model: ModelConfig) -> str:
+        spec = get_provider(model.family)
+        if not spec.supports_edit or not spec.edit_template:
+            raise RuntimeError(f"{spec.label} does not support image edit.")
+        return self._build_url(spec.edit_template, model, spec)
+
+    def _post_with_fallback(
+        self,
+        url: str,
+        auth: str,
+        body: dict[str, Any],
+        optional_keys: list[str],
+        timeout: int,
+    ) -> tuple[requests.Response, dict[str, Any], dict[str, Any]]:
+        """POST JSON, progressively dropping optional keys on HTTP 400.
+
+        Different model versions accept different optional fields (for example
+        ``output_format`` is only valid on newer GPT-Image / FLUX builds). Rather
+        than hard-coding which version supports what, the request is retried with
+        optional fields trimmed so a single code path works across versions.
+        """
+
+        attempts: list[dict[str, Any]] = [copy.deepcopy(body)]
+        trimmed = copy.deepcopy(body)
+        for key in optional_keys:
+            if key in trimmed:
+                trimmed.pop(key, None)
+                attempts.append(copy.deepcopy(trimmed))
 
         seen: set[str] = set()
         last_response: requests.Response | None = None
         last_payload: dict[str, Any] = {}
         last_body: dict[str, Any] = body
-        for candidate in [*candidates, *compact_candidates]:
+        for candidate in attempts:
             fingerprint = json.dumps(candidate, sort_keys=True)
             if fingerprint in seen:
                 continue
             seen.add(fingerprint)
-            response = requests.post(url, headers=self._headers(kind, True), json=candidate, timeout=timeout)
+            response = requests.post(url, headers=self._auth_headers(auth, True), json=candidate, timeout=timeout)
             payload = self._read_json(response)
             if response.ok:
                 return response, payload, candidate
@@ -222,22 +328,6 @@ class ApiClient:
                 break
         assert last_response is not None
         return last_response, last_payload, last_body
-
-    def _generation_url(self, model: ModelConfig) -> str:
-        endpoint = self._endpoint()
-        if is_gpt(model.kind):
-            return (
-                f"{endpoint}/openai/deployments/{quote(model.deployment, safe='')}"
-                f"/images/generations?api-version={quote(self.config.gpt_api_version, safe='')}"
-            )
-        if is_flux(model.kind):
-            return (
-                f"{endpoint}/providers/blackforestlabs/v1/{model.kind}"
-                f"?api-version={quote(self.config.flux_api_version or 'preview', safe='')}"
-            )
-        if is_mai(model.kind):
-            return f"{endpoint}/mai/v1/images/generations"
-        raise RuntimeError(f"Unsupported model kind: {model.kind}")
 
     def prepare_prompt(
         self,
@@ -294,7 +384,7 @@ class ApiClient:
         }
         response = requests.post(
             self._chat_url(self.config.eval_deployment),
-            headers=self._headers("gpt", True),
+            headers=self._auth_headers("api-key", True),
             json=payload,
             timeout=self._timeout_for("eval"),
         )
@@ -310,20 +400,6 @@ class ApiClient:
             "dimension_map": merged_dimension_map,
             "used_enrichment": True,
         }
-
-    def _edit_url(self, model: ModelConfig) -> str:
-        endpoint = self._endpoint()
-        if is_gpt(model.kind):
-            return (
-                f"{endpoint}/openai/deployments/{quote(model.deployment, safe='')}"
-                f"/images/edits?api-version={quote(self.config.gpt_api_version, safe='')}"
-            )
-        if is_flux(model.kind):
-            return (
-                f"{endpoint}/providers/blackforestlabs/v1/{model.kind}"
-                f"?api-version={quote(self.config.flux_api_version or 'preview', safe='')}"
-            )
-        raise RuntimeError(f"Unsupported edit model kind: {model.kind}")
 
     def generate_benchmark(self, idea: str) -> dict[str, Any]:
         if not self.config.eval_deployment:
@@ -342,7 +418,7 @@ class ApiClient:
                 {"role": "user", "content": f'Theme: "{idea}"'},
             ],
         }
-        response = requests.post(url, headers=self._headers("gpt", True), json=payload, timeout=self.timeout)
+        response = requests.post(url, headers=self._auth_headers("api-key", True), json=payload, timeout=self.timeout)
         data = self._read_json(response)
         self._raise_for_payload(response, data)
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
@@ -357,57 +433,63 @@ class ApiClient:
         output_format: str,
     ) -> GenerationResult:
         started = time.perf_counter()
+        spec = get_provider(model.family)
         url = self._generation_url(model)
         width, height = parse_size(size)
-        if is_gpt(model.kind):
+        timeout = self._timeout_for("generate", model.family)
+        body_model = model.body_model()
+
+        if spec.body_style == "gpt-image":
             body: dict[str, Any] = {
                 "prompt": prompt,
-                "model": model.kind,
+                "model": body_model,
                 "n": 1,
                 "quality": quality,
             }
             if size != "auto":
                 body["size"] = size
-            if model.kind == "gpt-image-2":
+            if output_format == "jpeg":
                 body["output_format"] = output_format
-            response = requests.post(url, headers=self._headers(model.kind, True), json=body, timeout=self._timeout_for("generate", model.kind))
-            data = self._read_json(response)
+            response, data, used_body = self._post_with_fallback(
+                url, spec.auth, body, ["output_format"], timeout
+            )
             self._raise_for_payload(response, data)
-            image_b64 = data.get("data", [{}])[0].get("b64_json")
+            image_b64 = extract_image(data, spec)
             if not image_b64:
                 raise RuntimeError("No image in response.")
-            mime = "image/jpeg" if output_format == "jpeg" and model.kind == "gpt-image-2" else "image/png"
+            mime = "image/jpeg" if used_body.get("output_format") == "jpeg" else "image/png"
             return GenerationResult(
                 model_name=model.name,
-                model_kind=model.kind,
+                model_kind=model.family,
                 image_b64=image_b64,
                 mime_type=mime,
                 elapsed_s=round(time.perf_counter() - started, 2),
                 usage=self._extract_usage(data),
                 url=url,
-                request_payload=body,
+                request_payload=used_body,
                 response_payload=data,
             )
-        if is_flux(model.kind):
-            canonical = flux_name(ModelConfig(name=model.name, kind=model.kind, deployment="", enabled=model.enabled))
+
+        if spec.body_style == "flux":
             body = {
-                "model": flux_name(model),
+                "model": body_model,
                 "prompt": prompt,
                 "width": width,
                 "height": height,
                 "output_format": output_format,
                 "num_images": 1,
             }
-            response, data, used_body = self._request_flux_json(url, model.kind, body, canonical)
+            response, data, used_body = self._post_with_fallback(
+                url, spec.auth, body, ["output_format", "num_images"], timeout
+            )
             self._raise_for_payload(response, data)
-            item = data.get("data", [{}])[0] or data.get("result", {})
-            image_b64 = item.get("b64_json") or item.get("base64") or item.get("image")
+            image_b64 = extract_image(data, spec)
             if not image_b64:
                 raise RuntimeError("No image in response.")
             mime = "image/jpeg" if output_format == "jpeg" else "image/png"
             return GenerationResult(
                 model_name=model.name,
-                model_kind=model.kind,
+                model_kind=model.family,
                 image_b64=image_b64,
                 mime_type=mime,
                 elapsed_s=round(time.perf_counter() - started, 2),
@@ -416,23 +498,24 @@ class ApiClient:
                 request_payload=used_body,
                 response_payload=data,
             )
-        if is_mai(model.kind):
+
+        if spec.body_style == "mai":
             width = max(768, width)
             height = max(768, height)
             if width * height > 1_048_576:
                 ratio = math.sqrt(1_048_576 / (width * height))
                 width = math.floor(width * ratio / 16) * 16
                 height = math.floor(height * ratio / 16) * 16
-            body = {"model": model.deployment, "prompt": prompt, "width": width, "height": height}
-            response = requests.post(url, headers=self._headers(model.kind, True), json=body, timeout=self._timeout_for("generate", model.kind))
+            body = {"model": body_model, "prompt": prompt, "width": width, "height": height}
+            response = requests.post(url, headers=self._auth_headers(spec.auth, True), json=body, timeout=timeout)
             data = self._read_json(response)
             self._raise_for_payload(response, data)
-            image_b64 = data.get("data", [{}])[0].get("b64_json")
+            image_b64 = extract_image(data, spec)
             if not image_b64:
                 raise RuntimeError("No image in response.")
             return GenerationResult(
                 model_name=model.name,
-                model_kind=model.kind,
+                model_kind=model.family,
                 image_b64=image_b64,
                 mime_type="image/png",
                 elapsed_s=round(time.perf_counter() - started, 2),
@@ -441,7 +524,29 @@ class ApiClient:
                 request_payload=body,
                 response_payload=data,
             )
-        raise RuntimeError(f"Unsupported model kind: {model.kind}")
+
+        # openai-compatible / custom
+        body = {"model": body_model, "prompt": prompt, "n": 1}
+        if size != "auto":
+            body["size"] = size
+        response, data, used_body = self._post_with_fallback(
+            url, spec.auth, body, ["size", "n"], timeout
+        )
+        self._raise_for_payload(response, data)
+        image_b64 = extract_image(data, spec)
+        if not image_b64:
+            raise RuntimeError("No image in response.")
+        return GenerationResult(
+            model_name=model.name,
+            model_kind=model.family,
+            image_b64=image_b64,
+            mime_type="image/png",
+            elapsed_s=round(time.perf_counter() - started, 2),
+            usage=self._extract_usage(data),
+            url=url,
+            request_payload=used_body,
+            response_payload=data,
+        )
 
     def generate_edit(
         self,
@@ -453,33 +558,34 @@ class ApiClient:
         output_format: str,
     ) -> GenerationResult:
         started = time.perf_counter()
-        if is_mai(model.kind):
-            raise RuntimeError("MAI models do not support edit in this app.")
+        spec = get_provider(model.family)
+        if not spec.supports_edit:
+            raise RuntimeError(f"{spec.label} does not support image edit in this app.")
         url = self._edit_url(model)
-        if is_flux(model.kind):
-            if model.kind not in {"flux-2-pro", "flux-2-flex", "flux-kontext-pro"}:
-                raise RuntimeError("This FLUX model does not support image edit.")
-            limit = {"flux-2-flex": 10, "flux-2-pro": 8, "flux-kontext-pro": 1}[model.kind]
-            if not source_paths or len(source_paths) > limit:
-                raise RuntimeError(f"Need 1-{limit} source images for {model.kind}.")
-            canonical = flux_name(ModelConfig(name=model.name, kind=model.kind, deployment="", enabled=model.enabled))
+        timeout = self._timeout_for("edit", model.family)
+        body_model = model.body_model()
+
+        if spec.body_style == "flux":
+            if not source_paths or len(source_paths) > 10:
+                raise RuntimeError("Need 1-10 source images for FLUX edit.")
             body: dict[str, Any] = {
-                "model": flux_name(model),
+                "model": body_model,
                 "prompt": prompt,
                 "output_format": output_format,
             }
             for index, path in enumerate(source_paths, start=1):
                 key = "input_image" if index == 1 else f"input_image_{index}"
                 body[key] = base64.b64encode(Path(path).read_bytes()).decode("ascii")
-            response, data, used_body = self._request_flux_json(url, model.kind, body, canonical)
+            response, data, used_body = self._post_with_fallback(
+                url, spec.auth, body, ["output_format"], timeout
+            )
             self._raise_for_payload(response, data)
-            item = data.get("data", [{}])[0] or data.get("result", {})
-            image_b64 = item.get("b64_json") or item.get("base64") or item.get("image")
+            image_b64 = extract_image(data, spec)
             if not image_b64:
                 raise RuntimeError("No image in response.")
             return GenerationResult(
                 model_name=model.name,
-                model_kind=model.kind,
+                model_kind=model.family,
                 image_b64=image_b64,
                 mime_type="image/jpeg" if output_format == "jpeg" else "image/png",
                 elapsed_s=round(time.perf_counter() - started, 2),
@@ -488,11 +594,13 @@ class ApiClient:
                 request_payload=used_body,
                 response_payload=data,
             )
+
+        # gpt-image edit: multipart/form-data
         if not source_paths:
             raise RuntimeError("Source image required.")
         data = {
             "prompt": prompt,
-            "model": model.kind,
+            "model": body_model,
             "size": size,
             "n": "1",
             "quality": "high",
@@ -503,14 +611,14 @@ class ApiClient:
             files.append(("mask", ("mask.png", Path(mask_path).read_bytes(), "image/png")))
         response = requests.post(
             url,
-            headers=self._headers(model.kind, False),
+            headers=self._auth_headers(spec.auth, False),
             data=data,
             files=files,
-            timeout=self._timeout_for("edit", model.kind),
+            timeout=timeout,
         )
         payload = self._read_json(response)
         self._raise_for_payload(response, payload)
-        image_b64 = payload.get("data", [{}])[0].get("b64_json")
+        image_b64 = extract_image(payload, spec)
         if not image_b64:
             raise RuntimeError("No image in response.")
         request_payload = copy.deepcopy(data)
@@ -519,7 +627,7 @@ class ApiClient:
             request_payload["mask_file"] = Path(mask_path).name
         return GenerationResult(
             model_name=model.name,
-            model_kind=model.kind,
+            model_kind=model.family,
             image_b64=image_b64,
             mime_type="image/png",
             elapsed_s=round(time.perf_counter() - started, 2),
@@ -637,7 +745,7 @@ class ApiClient:
         image_ref = redacted_request["messages"][1]["content"][1]["image_url"]["url"]
         if len(image_ref) > 96:
             redacted_request["messages"][1]["content"][1]["image_url"]["url"] = image_ref[:96] + "..."
-        response = requests.post(url, headers=self._headers("gpt", True), json=payload, timeout=self._timeout_for("eval"))
+        response = requests.post(url, headers=self._auth_headers("api-key", True), json=payload, timeout=self._timeout_for("eval"))
         raw_payload = self._read_json(response)
         self._raise_for_payload(response, raw_payload)
         content = raw_payload.get("choices", [{}])[0].get("message", {}).get("content", "{}")
@@ -677,6 +785,127 @@ class ApiClient:
             usage=usage,
             raw_payload=stored_payload,
         )
+
+    # ------------------------------------------------------------------
+    # Content safety path
+    # ------------------------------------------------------------------
+    def _cs_api_version(self) -> str:
+        return self.config.cs_api_version or "2024-09-01"
+
+    def analyze_image_safety(self, image_b64: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Run Azure AI Content Safety image moderation on a base64 image.
+
+        Returns a list of ``{category, severity, label}`` plus the raw payload.
+        Severities are FourSeverityLevels: 0/2/4/6 = Safe/Low/Medium/High.
+        """
+
+        url = (
+            f"{self._cs_endpoint()}/contentsafety/image:analyze"
+            f"?api-version={quote(self._cs_api_version(), safe='')}"
+        )
+        body = {
+            "image": {"content": image_b64},
+            "categories": SAFETY_CATEGORIES,
+            "outputType": "FourSeverityLevels",
+        }
+        response = requests.post(url, headers=self._cs_headers(True), json=body, timeout=self._timeout_for("cv"))
+        payload = self._read_json(response)
+        self._raise_for_payload(response, payload)
+        categories = [
+            {
+                "category": str(item.get("category", "")),
+                "severity": int(item.get("severity", 0) or 0),
+                "label": severity_label(int(item.get("severity", 0) or 0)),
+            }
+            for item in payload.get("categoriesAnalysis", [])
+        ]
+        return categories, payload
+
+    def analyze_text_safety(self, text: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Run Azure AI Content Safety text moderation on a prompt."""
+
+        url = (
+            f"{self._cs_endpoint()}/contentsafety/text:analyze"
+            f"?api-version={quote(self._cs_api_version(), safe='')}"
+        )
+        body = {
+            "text": text,
+            "categories": SAFETY_CATEGORIES,
+            "outputType": "FourSeverityLevels",
+        }
+        response = requests.post(url, headers=self._cs_headers(True), json=body, timeout=self._timeout_for("cv"))
+        payload = self._read_json(response)
+        self._raise_for_payload(response, payload)
+        categories = [
+            {
+                "category": str(item.get("category", "")),
+                "severity": int(item.get("severity", 0) or 0),
+                "label": severity_label(int(item.get("severity", 0) or 0)),
+            }
+            for item in payload.get("categoriesAnalysis", [])
+        ]
+        return categories, payload
+
+    def probe_safety(self, model: ModelConfig, prompt: str, scan_prompt: bool = True) -> dict[str, Any]:
+        """Content-safety probe for one model x prompt.
+
+        Sends the prompt to the image model and records whether the model
+        *gated* the request (content-filter block) or *produced* an image. Any
+        produced image is then moderated with Azure AI Content Safety. An
+        optional text scan of the prompt is included when a Content Safety
+        resource is configured.
+        """
+
+        result: dict[str, Any] = {
+            "outcome": "error",
+            "blocked": False,
+            "blockReason": "",
+            "image": None,
+            "imageCategories": [],
+            "promptCategories": [],
+            "maxImageSeverity": 0,
+            "moderationError": "",
+            "url": "",
+        }
+
+        cs_configured = bool(self.config.cs_endpoint or self.config.cs_secret or self.config.cv_endpoint)
+        if scan_prompt and cs_configured:
+            try:
+                prompt_cats, _ = self.analyze_text_safety(prompt)
+                result["promptCategories"] = prompt_cats
+            except Exception as exc:  # pragma: no cover - best effort
+                result["moderationError"] = f"prompt scan: {exc}"
+
+        try:
+            generation = self.generate_text(model, prompt, "1024x1024", "high", "png")
+        except ApiError as exc:
+            blocked = is_content_filter_block(str(exc), exc.payload)
+            result.update(
+                outcome="blocked" if blocked else "error",
+                blocked=blocked,
+                blockReason=str(exc),
+            )
+            return result
+        except Exception as exc:
+            blocked = is_content_filter_block(str(exc))
+            result.update(
+                outcome="blocked" if blocked else "error",
+                blocked=blocked,
+                blockReason=str(exc),
+            )
+            return result
+
+        result["outcome"] = "generated"
+        result["url"] = generation.url
+        result["image"] = image_data_url(generation.mime_type, generation.image_b64)
+        if cs_configured:
+            try:
+                image_cats, _ = self.analyze_image_safety(generation.image_b64)
+                result["imageCategories"] = image_cats
+                result["maxImageSeverity"] = max((c["severity"] for c in image_cats), default=0)
+            except Exception as exc:
+                result["moderationError"] = f"image moderation: {exc}"
+        return result
 
 
 def image_data_url(mime_type: str, image_b64: str) -> str:
