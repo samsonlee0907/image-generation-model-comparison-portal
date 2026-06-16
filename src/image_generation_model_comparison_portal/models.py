@@ -170,32 +170,43 @@ BENCHMARK_PRESETS = {
         },
     },
     "data_chart": {
-        "title": "Data Chart",
+        "title": "Report Page",
         "prompt": (
-            "A clean, precise data-visualization infographic on a plain white background showing a single "
-            "vertical bar chart titled 'QUARTERLY REVENUE 2025' in bold black sans-serif. The chart has "
-            "exactly four bars labeled Q1, Q2, Q3, Q4 along the x-axis, and a y-axis labeled 'Revenue (USD "
-            "millions)' with horizontal gridlines at 0, 20, 40, 60, and 80. The bars reach exactly these "
-            "heights with these colors: Q1 = 30 in blue (#2563EB), Q2 = 45 in green (#16A34A), Q3 = 55 in "
-            "amber (#F59E0B), and Q4 = 70 in red (#DC2626). Each bar has its exact numeric value printed in "
-            "black directly above it. A small legend in the top-right corner maps each color to its quarter. "
-            "Use a crisp anti-aliased flat vector style with accurate proportional bar heights, perfectly "
-            "horizontal gridlines, and sharp, legible numeric and axis labels."
+            "A single-page A4 portrait business report on a plain white background titled 'SUPPLY CHAIN "
+            "PERFORMANCE REVIEW 2025' in a bold black sans-serif header, with a thin blue (#2563EB) rule "
+            "under the title and a small italic subtitle 'Prepared by Operations Analytics'. The page is "
+            "laid out in clear sections from top to bottom.\n"
+            "Section 1 - Executive Summary: a left-aligned paragraph of three lines of crisp legible black "
+            "body text reading exactly: 'Revenue grew steadily across all four quarters, driven by stronger "
+            "downstream distribution. This report summarises quarterly performance and the end-to-end value "
+            "chain of the supply industry.'\n"
+            "Section 2 - a vertical bar chart on the left titled 'QUARTERLY REVENUE (USD millions)' with "
+            "exactly four bars labeled Q1, Q2, Q3, Q4 on the x-axis and a y-axis with horizontal gridlines "
+            "at 0, 20, 40, 60, 80. The bars reach exactly these heights and colors: Q1 = 30 blue (#2563EB), "
+            "Q2 = 45 green (#16A34A), Q3 = 55 amber (#F59E0B), Q4 = 70 red (#DC2626), each with its exact "
+            "numeric value printed in black directly above it.\n"
+            "Section 3 - to the right of the chart, a horizontal value-chain flow diagram titled 'SUPPLY "
+            "INDUSTRY VALUE CHAIN' made of exactly five rounded rectangular boxes connected left-to-right "
+            "by black arrows, labeled in order: 'Raw Materials' -> 'Inbound Logistics' -> 'Manufacturing' "
+            "-> 'Distribution' -> 'Retail & Customer'. Each box is filled a light blue tint with dark text "
+            "and the arrows point strictly left to right showing the sequence.\n"
+            "Use a clean, flat, corporate vector style with accurate proportional bar heights, perfectly "
+            "horizontal gridlines, evenly spaced flowchart boxes, and sharp, legible text throughout."
         ),
         "dim_map": {
-            "prompt_adherence": "Title, axis labels, four quarters, exact values, and color mapping must all match.",
-            "object_accuracy": "Bar chart, axes, gridlines, value labels, and color legend all present.",
-            "object_counting": "Exactly 4 bars and 5 gridlines (0/20/40/60/80) with one value label per bar.",
-            "attribute_binding": "Blue Q1, green Q2, amber Q3, red Q4 bound to the correct quarters.",
-            "spatial_relationship": "Bars sit on the x-axis at correct heights; legend in the top-right.",
-            "action_interaction": "N/A — a static chart; focus on accurate encoding of the data.",
-            "text_rendering": "Title, axis labels, value numbers (30/45/55/70), and legend text must be exact and legible.",
-            "anatomy_proportions": "N/A — bar proportions must instead match their stated numeric values.",
-            "physics_realism": "Flat vector chart; gridlines and bars should be clean and undistorted.",
-            "color_accuracy": "Bar colors should match the specified blue, green, amber, and red hex values.",
-            "fine_detail": "Sharp anti-aliased edges, aligned gridlines, and tidy numeric labels.",
-            "composition_aesthetics": "Balanced infographic layout with clear title, axes, and legend.",
-            "style_adherence": "Clean flat data-viz vector style rather than photoreal or hand-drawn.",
+            "prompt_adherence": "Header, subtitle, summary paragraph, bar chart, and five-stage value chain must all appear as specified.",
+            "object_accuracy": "Title rule, summary text, bar chart with axes, and the arrow-connected flow diagram are all present.",
+            "object_counting": "Exactly 4 bars, 5 gridlines (0/20/40/60/80), and 5 value-chain boxes joined by 4 arrows.",
+            "attribute_binding": "Blue Q1, green Q2, amber Q3, red Q4 bars; light-blue flow boxes with correct stage labels bound in order.",
+            "spatial_relationship": "Header on top, summary below it, chart on the left and the value-chain flow to its right, arrows left-to-right.",
+            "action_interaction": "Arrows must connect the five stages in sequence Raw Materials -> ... -> Retail & Customer.",
+            "text_rendering": "Title, subtitle, the exact summary sentences, axis/value numbers (30/45/55/70), and every stage label must be legible and correct.",
+            "anatomy_proportions": "N/A — bar proportions must instead match their stated numeric values and boxes stay evenly sized.",
+            "physics_realism": "Flat vector report; gridlines, bars, and connector arrows should be clean and undistorted.",
+            "color_accuracy": "Bar colors match the blue/green/amber/red hex values and the blue header rule and box tint stay consistent.",
+            "fine_detail": "Sharp anti-aliased edges, aligned gridlines, tidy numeric labels, and crisp arrowheads.",
+            "composition_aesthetics": "Balanced multi-section report layout with clear hierarchy between header, summary, chart, and diagram.",
+            "style_adherence": "Clean flat corporate report/infographic style rather than photoreal or hand-drawn.",
         },
     },
 }

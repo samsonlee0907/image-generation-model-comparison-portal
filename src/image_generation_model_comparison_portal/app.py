@@ -207,7 +207,7 @@ class MainWindow(QMainWindow):
         self.watchmaker_btn = QPushButton("Watchmaker")
         self.cartoon3d_btn = QPushButton("3D Cartoon")
         self.storyboard_btn = QPushButton("Comic Storyboard")
-        self.data_chart_btn = QPushButton("Data Chart")
+        self.data_chart_btn = QPushButton("Report Page")
         buttons.addWidget(self.gen_bench_btn)
         buttons.addWidget(self.watchmaker_btn)
         buttons.addWidget(self.cartoon3d_btn)
