@@ -279,6 +279,27 @@ Options:
 - `--reference PATH` — pricing/availability reference JSON (defaults to
   `tools/model-reference.json`).
 
+### Viewing the report online (no download)
+
+Because the report is a single self-contained HTML file, it can be opened
+straight in a browser without cloning the repo or downloading the file. GitHub
+itself shows committed `.html` as source, so use one of these render proxies:
+
+- **Live gist link (full report, images included):**
+  <https://gist.githack.com/samsonlee0907/3838443108bdacbf345a8f131697257a/raw/aggregate-report.html>
+  — the report is mirrored to a secret gist and served through githack with a
+  `text/html` content-type, so it renders in-browser (the gist's own UI truncates
+  files over 1 MB, which is why the githack proxy is used). For heavy traffic the
+  cached production variant `gistcdn.githack.com/...` can be used instead.
+- **Straight from the repo (after this lands on `main`):**
+  `https://raw.githack.com/samsonlee0907/image-generation-model-comparison-portal/main/test-reports/aggregate-report.html`
+
+To refresh the gist after regenerating the report:
+
+```
+gh gist edit 3838443108bdacbf345a8f131697257a -a test-reports/aggregate-report.html
+```
+
 ## Rate-Limit & Transient-Error Handling
 
 Generation, image-edit, and content-safety requests automatically retry two
