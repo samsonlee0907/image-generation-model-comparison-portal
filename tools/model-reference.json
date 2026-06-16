@@ -10,15 +10,16 @@
     "gpt-image-2": {
       "vendor": "Azure OpenAI",
       "pricing_model": "per_token",
-      "rates": {"text_input_per_1m": 5.0, "image_input_per_1m": 10.0, "image_output_per_1m": 40.0},
+      "rates": {"text_input_per_1m": 5.0, "image_input_per_1m": 8.0, "image_output_per_1m": 30.0,
+                "cached_text_input_per_1m": 1.25, "cached_image_input_per_1m": 2.0},
       "deployment": "Standard / Global Standard (Azure OpenAI)",
       "quota": "Per-subscription TPM/RPM, tiered; raise via an Azure quota-increase request",
       "throughput": "Image deployments start with a modest images-per-minute allowance that scales with assigned TPM/RPM quota",
       "regions": ["East US", "East US 2", "West US 3", "Sweden Central"],
       "azure_measured": {"region": "Sweden Central", "sku": "GlobalStandard", "configured_rpm": 9, "deployed_version": "2026-04-21", "limit_type": "RPM only (no separate token bucket on this image deployment)"},
-      "source": "Azure OpenAI pricing (gpt-image-1 reference rates)",
-      "source_url": "https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/",
-      "confidence": "reference — exact gpt-image-2 rates are not separately published; gpt-image-1 token rates used as a stand-in"
+      "source": "Azure OpenAI pricing (GPT-Image-2 Global)",
+      "source_url": "https://azure.microsoft.com/en-us/pricing/details/azure-openai/#pricing",
+      "confidence": "high (Azure OpenAI pricing page)"
     },
     "flux-2-pro": {
       "vendor": "Black Forest Labs (Azure AI Foundry)",

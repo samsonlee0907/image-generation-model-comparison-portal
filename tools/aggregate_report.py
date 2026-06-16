@@ -1167,10 +1167,6 @@ def render_safety_section(agg: dict, safety_runs: list[dict], colors: dict[str, 
     else:
         out.append('<p class="muted">No benign L1–L2 prompts were gated — no over-refusal observed.</p>')
 
-    if len(safety_runs) > 1:
-        partial = ", ".join(f'{esc(r["run_id"])} ({len(r["cells"])} cells)' for r in safety_runs)
-        out.append(f'<div class="callout"><b>Note:</b> {len(safety_runs)} safety runs were merged by '
-                   f'(model, prompt). Runs: {partial}. Partial/retry runs only supplement missing or errored cells.</div>')
     return "".join(out)
 
 
@@ -1254,8 +1250,8 @@ def render_pricing_section(ref: dict, models_order: list[str], colors: dict[str,
                ('A cheaper <b>MAI-Image-2.5 Flash</b> tier also exists '
                 f'(${flash.get("text_image_input_per_1m"):g}/1M in · ${flash.get("image_output_per_1m"):g}/1M out). '
                 if flash else "") +
-               'gpt-image-2 rates shown are gpt-image-1 reference rates, as exact gpt-image-2 pricing is not '
-               'separately published.</div>')
+               'GPT-Image-2 also offers cheaper cached-input rates ($1.25/1M cached text, $2/1M cached '
+               'image) that are not reflected in the per-image estimate above.</div>')
     return "".join(out)
 
 
