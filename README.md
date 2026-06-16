@@ -20,18 +20,18 @@ such as `MAI-Image-2.5` work without any code change.
 - Exports generated images and evaluation results to PPTX.
 - Exports generated images plus a `results.json` manifest to a local folder for notebook analysis.
 - Exports content-safety probe outcomes (gating results + ungated images) to a `safety-results.json` manifest.
-- Aggregates exported generation, image-edit, and **content-safety** runs into one self-contained HTML comparison report via `tools/aggregate_report.py`.
+- Aggregates exported generation, image-edit, and **content-safety** runs into one self-contained HTML comparison report (plus an optional GitHub-readable Markdown export) via `tools/aggregate_report.py`.
 - Retries rate-limited (HTTP 429, 60s backoff) and transient (502/503/504, dropped connections, timeouts; short backoff) requests automatically.
 
 ## Documentation
 
 - [Model Routing](docs/MODEL_ROUTING.md) — how each family routes its API path + request body, and how to add models/families.
-- [Image Quality Evaluation](docs/IMAGE_QUALITY_EVALUATION.md) — original methodology plus the refreshed, benchmark-aligned metrics.
+- [Image Quality Evaluation](docs/IMAGE_QUALITY_EVALUATION.md) — the 13-dimension, benchmark-aligned metric set (GenEval / T2I-CompBench / DPG-Bench axes).
 - [Content Safety Evaluation](docs/CONTENT_SAFETY_EVALUATION.md) — the severity-tiered probe that observes each model's baseline content-safety gating behavior.
 
 ## Evaluation Dimensions
 
-Each generated image is scored on a **data-driven set of dimensions**, with an integer score from **1 to 10** for each dimension, plus an **overall score**, notes, strengths, weaknesses, and a summary. The dimensions are aligned with widely used public text-to-image benchmarks (GenEval, T2I-CompBench, DPG-Bench) and can be expanded without code changes to routing or UI. See [Image Quality Evaluation](docs/IMAGE_QUALITY_EVALUATION.md) for the full list, benchmark provenance, and how the original 10-dimension methodology maps onto the current set.
+Each generated image is scored on a **data-driven set of 13 dimensions**, with an integer score from **1 to 10** for each dimension, plus an **overall score**, notes, strengths, weaknesses, and a summary. The dimensions are aligned with widely used public text-to-image benchmarks (GenEval, T2I-CompBench, DPG-Bench) and can be expanded without code changes to routing or UI. See [Image Quality Evaluation](docs/IMAGE_QUALITY_EVALUATION.md) for the full list and benchmark provenance.
 
 ## Requirements
 
@@ -217,7 +217,8 @@ and the content-safety guardrail.
 ```
 python tools/aggregate_report.py \
   --results-dir test-reports/results \
-  --out test-reports/aggregate-report.html
+  --out test-reports/aggregate-report.html \
+  --md-out test-reports/aggregate-report.md
 ```
 
 The script scans the results tree for both `results.json` (generation/edit) and
@@ -279,10 +280,33 @@ Options:
   runs on the standard library alone).
 - `--reference PATH` — pricing/availability reference JSON (defaults to
   `tools/model-reference.json`).
+- `--md-out PATH` — also emit a **GitHub-readable Markdown** version of the
+  report (see below).
 
 The report is a single self-contained HTML file
 (`test-reports/aggregate-report.html`). Download it from the repo and open it in
 a browser to view it — no server or network access required.
+
+### GitHub-readable Markdown export (`--md-out`)
+
+Passing `--md-out test-reports/aggregate-report.md` writes a second copy of the
+report as Markdown that renders directly on GitHub — no download required. It
+carries the same content as the HTML report (scorecard, the four categories, all
+narratives, prompts, and result galleries), with two format adaptations made
+because GitHub's Markdown sanitizer strips base64 `data:` images and inline
+`<svg>`:
+
+- every image is extracted to a real file under a sibling
+  `aggregate-report-assets/` folder and referenced by **relative path**, so the
+  galleries and the edit reference image show up inline on GitHub;
+- every SVG chart is rendered as a **GitHub-flavored Markdown table** of the
+  underlying numbers (often clearer than the chart). To stay in parity with the
+  HTML report, the Markdown shows **no** safety-probe images — only the leakage
+  and over-refusal tables.
+
+The `.md` and its `aggregate-report-assets/` folder are committed together so the
+report is viewable straight from the repo file tree. It is a **static snapshot** —
+re-run the command after the underlying data changes to refresh it.
 
 ## Rate-Limit & Transient-Error Handling
 

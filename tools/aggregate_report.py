@@ -25,6 +25,8 @@ import glob
 import html
 import io
 import json
+import re
+import shutil
 import statistics
 from collections import defaultdict
 from datetime import datetime
@@ -1413,6 +1415,605 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
 
 
 # --------------------------------------------------------------------------- #
+# Markdown rendering (GitHub-readable; images extracted to a sibling folder)
+# --------------------------------------------------------------------------- #
+# GitHub's Markdown sanitizer strips base64 ``data:`` image URIs and inline SVG,
+# so the HTML report's embedded thumbnails/charts cannot be reused directly. The
+# Markdown emitter instead writes each image to a real file (referenced by a
+# relative path) and renders every chart as a GitHub-flavored table.
+def gh_slug(text: str) -> str:
+    """Approximate GitHub's heading-anchor slug for in-page TOC links."""
+    s = str(text).strip().lower()
+    s = re.sub(r"[^a-z0-9 _\-]", "", s)
+    return s.replace(" ", "-")
+
+
+def md_text(value: Any) -> str:
+    """Escape angle brackets for inline Markdown prose."""
+    s = "" if value is None else str(value)
+    return s.replace("<", "&lt;").replace(">", "&gt;")
+
+
+def md_cell(value: Any) -> str:
+    """Escape a value for use inside a GitHub-flavored Markdown table cell."""
+    s = "" if value is None else str(value)
+    s = s.replace("\r", " ").replace("\n", " ").replace("|", "\\|")
+    s = s.replace("<", "&lt;").replace(">", "&gt;")
+    return " ".join(s.split()) or "—"
+
+
+def md_table(headers: list[str], rows: list[list[str]]) -> str:
+    head = "| " + " | ".join(headers) + " |"
+    sep = "| " + " | ".join("---" for _ in headers) + " |"
+    body = "\n".join("| " + " | ".join(r) + " |" for r in rows)
+    return head + "\n" + sep + (("\n" + body) if body else "") + "\n"
+
+
+def _slugify(text: str) -> str:
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", str(text)).strip("-").lower()
+    return s or "img"
+
+
+class MdAssets:
+    """Extracts run images to files next to the .md so GitHub can render them."""
+
+    def __init__(self, assets_dir: Path, rel_prefix: str, no_images: bool, thumb_px: int):
+        self.dir = assets_dir
+        self.rel = rel_prefix
+        self.no_images = no_images
+        self.thumb_px = thumb_px
+        self._cache: dict[str, str] = {}
+        self._used: set[str] = set()
+        self.count = 0
+        if not no_images:
+            if assets_dir.exists():
+                shutil.rmtree(assets_dir)
+            assets_dir.mkdir(parents=True, exist_ok=True)
+
+    def add(self, path: Path | None, hint: str) -> str | None:
+        if self.no_images or not path:
+            return None
+        path = Path(path)
+        if not path.exists():
+            return None
+        key = str(path.resolve())
+        if key in self._cache:
+            return self._cache[key]
+        base = _slugify(hint)
+        suffix = ".jpg" if _HAVE_PIL else (path.suffix or ".png")
+        name = base + suffix
+        i = 2
+        while name in self._used:
+            name = f"{base}-{i}{suffix}"
+            i += 1
+        dest = self.dir / name
+        try:
+            if _HAVE_PIL:
+                with Image.open(path) as im:
+                    im = im.convert("RGB")
+                    im.thumbnail((self.thumb_px, self.thumb_px))
+                    im.save(dest, format="JPEG", quality=82)
+            else:
+                shutil.copyfile(path, dest)
+        except Exception:
+            return None
+        self._used.add(name)
+        self.count += 1
+        rel = f"{self.rel}/{name}"
+        self._cache[key] = rel
+        return rel
+
+
+def _md_image_grid(items: list[tuple[str, str]], width: int = 220) -> str:
+    """Render images side by side via a small HTML table (relative-path src)."""
+    if not items:
+        return ""
+    tds = "".join(
+        f'<td align="center" valign="top"><img src="{rel}" width="{width}"><br>'
+        f"<sub>{md_text(cap)}</sub></td>"
+        for rel, cap in items
+    )
+    return f"<table><tr>{tds}</tr></table>\n"
+
+
+def _md_prompt_details(prompt: str) -> str:
+    body = str(prompt).replace("```", "ʼʼʼ")
+    return ("<details>\n<summary>Show the prompt sent to the models</summary>\n\n"
+            "```text\n" + body + "\n```\n\n</details>\n")
+
+
+def _md_quality_narrative(agg: dict, ranked: list[str], noun_plural: str) -> str:
+    scored = [(m, agg["models"][m]["overall_avg"]) for m in ranked
+              if isinstance(agg["models"][m]["overall_avg"], (int, float))]
+    if not scored:
+        return "No comparable scores were produced for this category."
+    n = len(agg["runs"])
+    top_m, top_v = scored[0]
+    s = (f"Across the {n} {noun_plural}, **{md_text(top_m)}** led with an average quality score of "
+         f"**{top_v:.2f}/10**")
+    if len(scored) > 1:
+        s += f", ahead of {md_text(scored[1][0])} ({scored[1][1]:.2f})"
+    if len(scored) > 2:
+        last_m, last_v = scored[-1]
+        s += (f"; {md_text(last_m)} trailed at {last_v:.2f}, a {top_v - last_v:.2f}-point spread "
+              "from top to bottom")
+    return s + ". The leaderboard below ranks every comparable model; the detailed breakdown follows."
+
+
+def md_scorecard(gen: dict, edit: dict, safety: dict, ref: dict, latency: dict) -> str:
+    models = sorted(set(gen["order"]) | set(edit["order"]) | set(safety["models"]), key=model_sort_key)
+    ref_models = ref.get("models") or {}
+    assumptions = ref.get("assumptions") or {}
+
+    def best(getter, higher=True):
+        nums = {m: getter(m) for m in models}
+        nums = {m: v for m, v in nums.items() if isinstance(v, (int, float))}
+        if not nums:
+            return None
+        return (max if higher else min)(nums, key=nums.get)
+
+    best_gen = best(lambda m: gen["models"].get(m, {}).get("overall_avg"))
+    best_edit = best(lambda m: edit["models"].get(m, {}).get("overall_avg"))
+    cheapest = best(lambda m: price_per_image(ref_models.get(m, {}), assumptions), higher=False)
+    fastest = best(lambda m: latency.get(m), higher=False)
+
+    rows = []
+    for m in models:
+        g = gen["models"].get(m, {}).get("overall_avg")
+        em = edit["models"].get(m, {})
+        e = em.get("overall_avg")
+        g_txt = f"**{fmt(g)}** 🏆" if m == best_gen else fmt(g)
+        e_txt = "N/A" if em.get("excluded") else fmt(e)
+        if not em.get("excluded") and m == best_edit:
+            e_txt = f"**{e_txt}** 🏆"
+        hsr = safety["high_sev_rate"].get(m)
+        hsr_txt = f"{hsr*100:.0f}%" if isinstance(hsr, (int, float)) else "—"
+        ppi = price_per_image(ref_models.get(m, {}), assumptions)
+        ppi_txt = f"≈ ${ppi:.3f}" if isinstance(ppi, (int, float)) else "—"
+        if m == cheapest:
+            ppi_txt = f"**{ppi_txt}** 🏆"
+        lat = latency.get(m)
+        lat_txt = f"{lat:.0f}s" if isinstance(lat, (int, float)) else "—"
+        if m == fastest:
+            lat_txt = f"**{lat_txt}** 🏆"
+        rows.append([md_cell(m), g_txt, e_txt, hsr_txt, ppi_txt, lat_txt])
+
+    out = ["## Executive Scorecard", "",
+           "One row per model. **Generation / edit quality** is the average evaluator score (0–10); edit "
+           "quality is **N/A** for models without image-edit support. **Severe-prompt gating** is the share "
+           "of genuinely unsafe (L4–L5+) prompts blocked. **Est. price / image** normalizes published "
+           "pricing to one 1024×1024 image (see §3), and **measured latency** is the average wall-clock "
+           "time observed in this test set (see §4). 🏆 marks the leader on each axis.", ""]
+    out.append(md_table(
+        ["Model", "Generation quality", "Edit quality", "Severe-prompt gating (L4–L5+)",
+         "Est. price / image", "Measured latency"], rows))
+    return "\n".join(out) + "\n"
+
+
+def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: bool,
+                       assets: "MdAssets") -> str:
+    order = agg["order"]
+    comp = agg.get("comp_order") or order
+    runs = agg["runs"]
+    out = [f"### {title}", ""]
+    if not order:
+        out.append(f"_No {title.lower()} runs found._\n")
+        return "\n".join(out) + "\n"
+
+    ranked = sorted(comp, key=lambda m: (agg["models"][m]["overall_avg"] is None,
+                                         -(agg["models"][m]["overall_avg"] or 0)))
+    noun = "edit scenario" if emphasize_retention else "generation theme"
+    noun_plural = "edit scenarios" if emphasize_retention else "generation themes"
+
+    # 1) Results at a glance — narrative + leaderboard.
+    out += ["#### Results at a glance", "", _md_quality_narrative(agg, ranked, noun_plural), ""]
+    out.append(f"_Average quality score across all {len(runs)} {noun_plural} (0–10, higher is better)._\n")
+    lb_rows = []
+    for i, m in enumerate(ranked, 1):
+        v = agg["models"][m]["overall_avg"]
+        vtxt = f"**{fmt(v)}**" if i == 1 else fmt(v)
+        lb_rows.append([str(i), md_cell(m), vtxt, str(agg["models"][m]["n_runs"])])
+    out.append(md_table(["Rank", "Model", "Avg quality (0–10)", "Runs"], lb_rows))
+
+    # 2) How we evaluate — the dimensions.
+    out += [f"#### How we evaluate — the {len(DIM_KEYS)} quality dimensions", "",
+            "The evaluator LLM scores every image on these axes (each 0–10), aligned with public "
+            "text-to-image benchmarks (GenEval, T2I-CompBench, DPG-Bench); the overall score is their "
+            "aggregate."
+            + (" Axes marked ★ are the detail-retention axes that matter most when judging an edit."
+               if emphasize_retention else ""), ""]
+    dim_rows = []
+    for k in DIM_KEYS:
+        star = "★ " if emphasize_retention and k in RETENTION_DIMS else ""
+        dim_rows.append([f"**{star}{md_cell(DIM_LABELS[k])}**", md_cell(DIM_DESC[k])])
+    out.append(md_table(["Dimension", "What it measures"], dim_rows))
+
+    # 3) Per-run scores.
+    out += ["#### Per-run scores", ""]
+    pr_rows = []
+    for run in runs:
+        cells_vals = {m: run["models"].get(m, {}).get("overall") for m in order}
+        nums = {m: v for m, v in cells_vals.items()
+                if isinstance(v, (int, float)) and not agg["models"][m]["excluded"]}
+        best_m = max(nums, key=nums.get) if nums else None
+        row = [md_cell(run["title"])]
+        for m in order:
+            if agg["models"][m]["excluded"]:
+                row.append("N/A")
+                continue
+            fb = " (fb)" if run["models"].get(m, {}).get("fallback") else ""
+            cell = f"{fmt(cells_vals[m])}{fb}"
+            row.append(f"**{cell}**" if m == best_m else cell)
+        pr_rows.append(row)
+    out.append(md_table(["Run"] + [md_cell(m) for m in order], pr_rows))
+
+    excluded = [m for m in order if agg["models"][m]["excluded"]]
+    if excluded:
+        out.append("> **Excluded from the edit comparison:** " + ", ".join(md_text(m) for m in excluded) +
+                   ". These models do not support image-to-image editing, so every run silently fell back to "
+                   "plain text-to-image; their edit quality is reported as **N/A** and left out of the "
+                   "leaderboard and heatmap. Their fallback images still appear in the gallery for "
+                   "reference.\n")
+    partial = [m for m in comp if agg["models"][m]["fallback_runs"]]
+    if partial:
+        items = ", ".join(f"{md_text(m)} ({agg['models'][m]['fallback_runs']} run(s))" for m in partial)
+        out.append("> **Edit-capability caveat.** Some rows tagged `(fb)` used a text-to-image fallback: "
+                   + items + ". Those scores reflect a freshly generated image, not an edit of the source.\n")
+
+    # Dimension heatmap.
+    out += ["#### Dimension heatmap — average score per benchmark axis", ""]
+    if emphasize_retention:
+        out.append("_Detail-retention axes (most important for edits) are marked ★: "
+                   + ", ".join(DIM_LABELS[k] for k in RETENTION_DIMS) + "._\n")
+    hm_headers = ["Model"] + [DIM_SHORT[k] + ("★" if emphasize_retention and k in RETENTION_DIMS else "")
+                              for k in DIM_KEYS] + ["Avg"]
+    hm_rows = []
+    for m in comp:
+        dim_avg = agg["models"][m]["dim_avg"]
+        row = [md_cell(m)] + [fmt(dim_avg.get(k)) for k in DIM_KEYS]
+        row.append(f"**{fmt(agg['models'][m]['overall_avg'])}**")
+        hm_rows.append(row)
+    out.append(md_table(hm_headers, hm_rows))
+
+    # Latency & cost.
+    out += ["#### Latency & cost", ""]
+    show_tok = any(isinstance(agg["models"][m]["tokens_avg"], (int, float)) for m in order)
+    lc_headers = ["Model", "Avg generation latency"] + (["Avg image-gen tokens"] if show_tok else [])
+    lc_rows = []
+    for m in order:
+        la = agg["models"][m]["elapsed_avg"]
+        la_txt = f"{la:.1f}s" if isinstance(la, (int, float)) else "—"
+        row = [md_cell(m), la_txt]
+        if show_tok:
+            tok = agg["models"][m]["tokens_avg"]
+            row.append(f"{tok:.0f}" if isinstance(tok, (int, float)) else "—")
+        lc_rows.append(row)
+    out.append(md_table(lc_headers, lc_rows))
+    if show_tok:
+        out.append("_Token usage is only reported by models whose API returns it._\n")
+
+    # Strengths & weaknesses.
+    out += ["#### Recurring strengths & weaknesses", ""]
+    for m in order:
+        s = "; ".join(md_text(x) for x in agg["models"][m]["strengths"]) or "—"
+        w = "; ".join(md_text(x) for x in agg["models"][m]["weaknesses"]) or "—"
+        out.append(f"- **{md_text(m)}** — _Strengths:_ {s} · _Weaknesses:_ {w}")
+    out.append("")
+
+    # 4) How each theme/scenario is tested (+ reference image for edits).
+    out += [f"#### How each {noun} is tested", ""]
+    if emphasize_retention:
+        src = next((r.get("source_image") for r in runs if r.get("source_image")), None)
+        rel = assets.add(src, f"{anchor}-reference")
+        if rel:
+            src_sum = next((r.get("source_summary") for r in runs if r.get("source_summary")), "")
+            out.append(f'<img src="{rel}" width="320">\n')
+            out.append("_Reference image — every edit below started from this exact source._\n")
+            if src_sum:
+                out.append(md_text(src_sum) + "\n")
+            out.append("Each scenario asks for one targeted change while keeping everything else identical, "
+                       "so each result can be compared directly against this image to judge how well the "
+                       "original detail is retained.\n")
+    out.append(md_table(["Run", "What it targets"],
+                        [[md_cell(run["title"]), md_cell(run.get("summary") or "—")] for run in runs]))
+
+    # 5) Result gallery.
+    if not assets.no_images:
+        out += ["#### Result gallery", ""]
+        for run in runs:
+            items = []
+            for m in order:
+                row = run["models"].get(m) or {}
+                rel = assets.add(row.get("image"), f"{anchor}-{run['title']}-{m}")
+                if not rel:
+                    continue
+                fb = " (fallback)" if row.get("fallback") else ""
+                items.append((rel, f"{m} — {fmt(row.get('overall'))}{fb}"))
+            if not items:
+                continue
+            out.append(f"**{md_text(run['title'])}**\n")
+            if run.get("summary"):
+                out.append(md_text(run["summary"]) + "\n")
+            if run.get("prompt"):
+                out.append(_md_prompt_details(run["prompt"]))
+            out.append(_md_image_grid(items))
+    return "\n".join(out) + "\n"
+
+
+def md_safety_section(agg: dict, assets: "MdAssets") -> str:
+    models = agg["models"]
+    cats = agg["categories"]
+    out = ["## 2 · Content Safety", ""]
+    if not models:
+        out.append("_No safety runs found._\n")
+        return "\n".join(out) + "\n"
+    out.append("Each model received prompts that escalate in severity across four harm categories, and we "
+               "record whether the platform **gated** the request (input/output filtered) or the model "
+               "**produced** an image. There is deliberately **no single safety score**: blocking a benign "
+               "prompt and blocking a harmful one mean opposite things, so we report the genuinely-unsafe "
+               "(L4–L5+) gating rate as the headline and treat the lower tiers as a sensitivity profile.\n")
+    pct = lambda x: f"{x*100:.0f}%" if isinstance(x, (int, float)) else "—"
+
+    out += ["### Severity scale — what L1 to L5+ mean", "",
+            "Read this first. The example prompts show what each level looks like before you read the "
+            "outcomes.", ""]
+    ex = agg.get("level_examples", {})
+    sev_rows = []
+    for lvl in LEVEL_ORDER:
+        tier, name, meaning = LEVEL_INFO.get(lvl, ("benign", lvl, ""))
+        cell = ex.get(lvl) or {}
+        prm = _truncate(cell.get("prompt"), 150) if cell else "—"
+        sev_rows.append([f"**{lvl}**", f"{md_cell(name)} — {md_cell(TIER_LABEL[tier])}",
+                         md_cell(meaning), md_cell(prm)])
+    out.append(md_table(["Level", "Tier", "What it represents", "Example prompt"], sev_rows))
+
+    out += ["### Headline — gating of genuinely unsafe prompts (L4–L5+)", "",
+            "Of the high-severity prompts (severe, extreme and adversarial jailbreaks), how many did each "
+            "platform block? Higher is safer. Benign and mild prompts are intentionally excluded so a model "
+            "is not rewarded for over-blocking harmless content.", ""]
+    hs_ranked = sorted(models, key=lambda m: -(agg["high_sev_rate"][m] or 0))
+    hl_rows = []
+    for i, m in enumerate(hs_ranked, 1):
+        v = pct(agg["high_sev_rate"][m])
+        hl_rows.append([md_cell(m), f"**{v}**" if i == 1 else v])
+    out.append(md_table(["Model", "L4–L5+ gating (higher = safer)"], hl_rows))
+
+    out += ["### Sensitivity profile — gating rate by severity tier", "",
+            "**Benign L1–L2** gating is a false-positive / over-refusal signal (lower is better); **L3** is a "
+            "moderate indicator only; **high severity L4–L5+** gating is the desired behaviour (higher is "
+            "better). This characterises sensitivity rather than scoring true/false positives.", ""]
+    sp_rows = [[md_cell(m), pct(agg["benign_rate"][m]), pct(agg["mild_rate"][m]),
+                pct(agg["high_sev_rate"][m])] for m in models]
+    out.append(md_table(["Model", "Benign L1–L2 (lower better)", "Moderate L3 (indicator)",
+                         "High severity L4–L5+ (higher safer)"], sp_rows))
+
+    out += ["### Severity-escalation curve — gating rate by level", "",
+            "A well-calibrated model stays low across L1–L2 (benign), may rise through L3, and climbs high "
+            "by L4–L5+. A flat-high line suggests over-refusal; a flat-low line suggests weak guardrails on "
+            "harmful content.", ""]
+    esc_rows = [[md_cell(m)] + [pct(r) for r in agg["level_rate"][m]] for m in models]
+    out.append(md_table(["Model"] + LEVEL_ORDER, esc_rows))
+
+    out += ["### Gating rate by harm category (all levels)", ""]
+    cat_rows = [[md_cell(m)] + [pct(agg["cat_rate"][m].get(c)) for c in cats] + [pct(agg["gating"][m])]
+                for m in models]
+    out.append(md_table(["Model"] + [md_cell(c) for c in cats] + ["All"], cat_rows))
+
+    out += ["### Raw outcome counts (all severities combined)", "",
+            "_Produced is the correct outcome for benign prompts, so this is a raw tally, not a score._", ""]
+    oc_rows = [[md_cell(m), str(agg["counts"][m]["gated"]), str(agg["counts"][m]["produced"]),
+                str(agg["counts"][m]["error"])] for m in models]
+    out.append(md_table(["Model", "Gated", "Produced", "Error"], oc_rows))
+
+    out += ["### ⚠ Potential safety leakage — images produced at L4/L5/L5+", ""]
+    if agg["leakage"]:
+        lk_rows = [[md_cell(c["model"]), md_cell(c["level_label"]), md_cell(c["category"]),
+                    md_cell(c["technique"]), md_cell(_truncate(c["prompt"], 130))] for c in agg["leakage"]]
+        out.append(md_table(["Model", "Level", "Category", "Technique", "Prompt"], lk_rows))
+    else:
+        out.append("_No images were produced at high severity — strong guardrail behavior._\n")
+
+    out += ["### Over-refusal — benign L1–L2 prompts that were gated (false positives)", ""]
+    if agg["over_refusal"]:
+        orr = [[md_cell(c["model"]), md_cell(c["level_label"]), md_cell(c["category"]),
+                md_cell(_truncate(c["prompt"], 110)), md_cell(_truncate(c["block_reason"], 90))]
+               for c in agg["over_refusal"]]
+        out.append(md_table(["Model", "Level", "Category", "Prompt", "Block reason"], orr))
+    else:
+        out.append("_No benign L1–L2 prompts were gated — no over-refusal observed._\n")
+    return "\n".join(out) + "\n"
+
+
+def _rates_text_md(entry: dict) -> str:
+    rates = entry.get("rates") or {}
+    if entry.get("pricing_model") == "per_token":
+        bits = []
+        if isinstance(rates.get("text_input_per_1m"), (int, float)):
+            bits.append(f"${rates['text_input_per_1m']:g} text-in")
+        if isinstance(rates.get("image_input_per_1m"), (int, float)):
+            bits.append(f"${rates['image_input_per_1m']:g} image-in")
+        if isinstance(rates.get("image_output_per_1m"), (int, float)):
+            bits.append(f"${rates['image_output_per_1m']:g} image-out")
+        return (" · ".join(bits) + " / 1M tokens") if bits else "—"
+    if entry.get("pricing_model") == "per_megapixel":
+        bits = []
+        if isinstance(rates.get("first_mp"), (int, float)):
+            bits.append(f"${rates['first_mp']:g} first MP")
+        if isinstance(rates.get("additional_mp"), (int, float)):
+            bits.append(f"${rates['additional_mp']:g} add'l MP")
+        if isinstance(rates.get("reference_image_per_mp"), (int, float)):
+            bits.append(f"${rates['reference_image_per_mp']:g} ref-img/MP")
+        return " · ".join(bits) if bits else "—"
+    return "—"
+
+
+def md_pricing_section(ref: dict, models_order: list[str]) -> str:
+    ref_models = ref.get("models") or {}
+    assumptions = ref.get("assumptions") or {}
+    as_of = ref.get("as_of") or "n/a"
+    out = ["## 3 · Pricing", "",
+           "Published list pricing for each model, gathered from Azure pricing pages and Microsoft release "
+           f"material **as of {md_text(as_of)}**. Vendors meter these models differently — Azure OpenAI and "
+           "the MAI models charge **per token**, while FLUX 2 Pro charges **per megapixel** — so the final "
+           "column normalizes everything to the estimated cost of a single 1024×1024 image. Always confirm "
+           "against live pricing before budgeting.", ""]
+    priced = {m: price_per_image(ref_models.get(m, {}), assumptions) for m in models_order}
+    nums = {m: v for m, v in priced.items() if isinstance(v, (int, float))}
+    cheapest = min(nums, key=nums.get) if nums else None
+    pm_label = {"per_token": "Per token", "per_megapixel": "Per megapixel"}
+    rows = []
+    for m in models_order:
+        e = ref_models.get(m)
+        if not e:
+            rows.append([md_cell(m), "_No reference pricing on file._", "—", "—", "—", "—"])
+            continue
+        ppi = priced.get(m)
+        ppi_txt = f"≈ ${ppi:.3f}" if isinstance(ppi, (int, float)) else "—"
+        if m == cheapest:
+            ppi_txt = f"**{ppi_txt}**"
+        src_url = e.get("source_url", "")
+        src = e.get("source", "—")
+        src_md = f"[{md_cell(src)}]({src_url})" if src_url else md_cell(src)
+        if e.get("confidence"):
+            src_md += f" ({md_cell(e['confidence'])})"
+        rows.append([md_cell(m), md_cell(e.get("vendor", "—")),
+                     md_cell(pm_label.get(e.get("pricing_model"), e.get("pricing_model", "—"))),
+                     md_cell(_rates_text_md(e)), ppi_txt, src_md])
+    out.append(md_table(["Model", "Vendor", "Pricing model", "Published rates",
+                         "Est. $ / 1024² image", "Source"], rows))
+
+    note = assumptions.get("note")
+    flash = (ref_models.get("MAI-Image-2.5") or {}).get("flash_variant")
+    callout = ("**How the per-image estimate is built:** token-priced models are charged on "
+               f"≈{assumptions.get('image_output_tokens_per_image', 1300)} image-output tokens + "
+               f"≈{assumptions.get('text_input_tokens_per_image', 120)} prompt tokens per image; FLUX uses "
+               "its published per-megapixel rate (1024² ≈ 1 MP). ")
+    if note:
+        callout += md_text(note) + " "
+    if flash:
+        callout += (f"A cheaper **MAI-Image-2.5 Flash** tier also exists "
+                    f"(${flash.get('text_image_input_per_1m'):g}/1M in · "
+                    f"${flash.get('image_output_per_1m'):g}/1M out). ")
+    callout += ("GPT-Image-2 also offers cheaper cached-input rates ($1.25/1M cached text, $2/1M cached "
+                "image) that are not reflected in the per-image estimate above.")
+    out.append("> " + callout + "\n")
+    return "\n".join(out) + "\n"
+
+
+def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -> str:
+    ref_models = ref.get("models") or {}
+    out = ["## 4 · Default Capacity and Observed Performance", "",
+           "Capacity, throughput, latency and region coverage. The **configured capacity** column shows the "
+           "actual request-per-minute (RPM) limit set on each deployment in the test subscription (Global "
+           "Standard, Sweden Central) — the same capacity that produced the latencies — and latency is shown "
+           "both in seconds and **relative to the fastest model**. Configured RPM is a per-deployment "
+           "default that can be raised through a quota request; it is not a vendor-wide maximum.", ""]
+    nums = {m: v for m, v in latency.items() if isinstance(v, (int, float))}
+    fastest = min(nums, key=nums.get) if nums else None
+    fastest_lat = nums[fastest] if fastest else None
+    rows = []
+    for m in models_order:
+        e = ref_models.get(m) or {}
+        am = e.get("azure_measured") or {}
+        lat = latency.get(m)
+        if isinstance(lat, (int, float)):
+            relmul = f" · {lat / fastest_lat:.1f}×" if fastest_lat else ""
+            lat_txt = f"{lat:.1f}s{relmul}"
+            if m == fastest:
+                lat_txt = f"**{lat_txt}**"
+        else:
+            lat_txt = "—"
+        if am:
+            ver = f" · {am['deployed_version']}" if am.get("deployed_version") else ""
+            reg_sku = f"{am.get('region', '—')} · {am.get('sku', '—')}{ver}"
+        else:
+            regions = e.get("regions") or []
+            reg_sku = ", ".join(regions) if regions else "—"
+        rpm = am.get("configured_rpm")
+        if isinstance(rpm, (int, float)):
+            limit = am.get("limit_type", "")
+            cap = f"**{rpm:g} req/min (RPM)**" + (f" ({limit})" if limit else "")
+        else:
+            cap = "see published default →"
+        thru = e.get("throughput")
+        quota_txt = (e.get("quota", "—") or "—") + (f" · {thru}" if thru else "")
+        src_url = e.get("source_url", "")
+        src = e.get("source", "—")
+        src_md = f"[{md_cell(src)}]({src_url})" if src_url else md_cell(src)
+        rows.append([md_cell(m), md_cell(reg_sku), md_cell(cap), md_cell(lat_txt),
+                     md_cell(quota_txt), src_md])
+    out.append(md_table(["Model", "Region & SKU", "Configured capacity",
+                         "Measured latency (avg · ×fastest)", "Published default / scaling", "Source"], rows))
+
+    cap_note = ref.get("capacity_note")
+    if cap_note:
+        out.append("> **About the configured capacity:** " + md_text(cap_note) + " All four models were "
+                   "called sequentially (one request at a time) under these limits, so the measured latency "
+                   "reflects single-request responsiveness, not throughput under concurrency.\n")
+    links = []
+    if ref.get("region_matrix_url"):
+        links.append(f"[Foundry region availability matrix]({ref['region_matrix_url']})")
+    if ref.get("quota_doc_url"):
+        links.append(f"[Foundry quotas & limits]({ref['quota_doc_url']})")
+    if links:
+        out.append("_Region & quota references: " + " · ".join(links) + ". FLUX and the MAI models deploy "
+                   "through a Global Standard shared quota pool rather than per-region capacity, so confirm "
+                   "the live region list and per-SKU limits in the portal._\n")
+    return "\n".join(out) + "\n"
+
+
+def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=None, latency=None) -> str:
+    ref = ref or {"models": {}, "assumptions": {}}
+    latency = latency or {}
+    models_all = sorted(set(gen["order"]) | set(edit["order"]) | set(safety["models"]), key=model_sort_key)
+
+    out = ["# Image Generation Model Comparison", ""]
+    out.append(f"Aggregated report generated {md_text(dataset_meta['generated_at'])} · "
+               f"{len(models_all)} models · evaluator `{md_text(dataset_meta['evaluator'])}`.\n")
+    out.append(f"Every model was put through the **same** battery: **{dataset_meta['n_gen_runs']}** "
+               f"image-generation themes, **{dataset_meta['n_edit_runs']}** image-edit scenarios, and a "
+               f"**{dataset_meta['n_safety_cells']}**-cell content-safety probe (harm categories × severity "
+               "levels L1–L5+). Each section explains what its runs test before showing the scores.\n")
+    out.append("**Models compared:** " + ", ".join(f"`{md_text(m)}`" for m in models_all) + "\n")
+
+    out += ["## Contents", ""]
+    for title in ["Executive Scorecard", "1 · Image Generation Quality (including editing)",
+                  "2 · Content Safety", "3 · Pricing", "4 · Default Capacity and Observed Performance"]:
+        out.append(f"- [{title}](#{gh_slug(title)})")
+    out.append("")
+
+    out.append(md_scorecard(gen, edit, safety, ref, latency))
+
+    out.append("## 1 · Image Generation Quality (including editing)\n")
+    out.append("How well each model turns a prompt into an image, scored by the evaluator LLM across 13 "
+               "benchmark-aligned dimensions. Text-to-image generation and prompt-guided image editing are "
+               "reported as two subsections below.\n")
+    out.append(md_quality_section(gen, "Text-to-image generation", "generation", False, assets))
+    out.append(md_quality_section(edit, "Prompt-guided image editing", "edit", True, assets))
+
+    out.append(md_safety_section(safety, assets))
+    out.append(md_pricing_section(ref, models_all))
+    out.append(md_availability_section(ref, latency, models_all))
+
+    as_of = (ref or {}).get("as_of") or "n/a"
+    out += ["## Methodology & caveats", "",
+            f"- Quality scores are produced by the evaluator LLM (`{md_text(dataset_meta['evaluator'])}`) "
+            "over 13 dimensions aligned with public text-to-image benchmarks (GenEval, T2I-CompBench, "
+            "DPG-Bench) and human-preference scoring.",
+            "- Edit runs also send the original source image to the evaluator so it can score detail "
+            "retention; the ★ axes (Prompt, Objects, Binding, Text, Detail) weigh most for edits.",
+            "- Safety severity scale: L1 benign control · L2 mild · L3 moderate · L4 severe · L5 extreme · "
+            "L5+ adversarial deception/jailbreak. The headline safety figure is the L4–L5+ gating rate.",
+            "- Models without edit support fall back to text-to-image (tagged `(fb)`) and are reported as "
+            "N/A in the edit comparison rather than scored as edits.",
+            f"- **Pricing (§3) and quota/region data (§4) are external reference values** gathered from Azure "
+            f"pricing pages and Microsoft release material as of {md_text(as_of)}, and should be confirmed "
+            "against live pricing/quota; **latency (§4) is measured** from this test set and is empirical.",
+            "- All source exports redact secrets; this report embeds no endpoint or API-key material.", ""]
+    return "\n".join(out) + "\n"
+
+
+# --------------------------------------------------------------------------- #
 # main
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> int:
@@ -1423,6 +2024,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--thumb-px", default=360, type=int, help="Max thumbnail edge in px (needs Pillow).")
     ap.add_argument("--reference", default=None, type=Path,
                     help="Pricing/availability reference JSON (defaults to tools/model-reference.json).")
+    ap.add_argument("--md-out", default=None, type=Path,
+                    help="Also write a GitHub-readable Markdown report; images are extracted to a sibling "
+                         "'<name>-assets' folder and referenced by relative path.")
     args = ap.parse_args(argv)
 
     results_dir = args.results_dir
@@ -1501,6 +2105,22 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Wrote {args.out} ({size_mb:.1f} MB)")
     print(f"  generation runs: {len(gen_runs)} | edit runs: {len(edit_runs)} | "
           f"safety runs: {len(safety_runs)} | models: {len(safety['models']) or len(gen['order'])}")
+
+    # Optional GitHub-readable Markdown variant (images extracted to files).
+    if args.md_out:
+        md_out = args.md_out
+        assets_dir = md_out.parent / (md_out.stem + "-assets")
+        assets = MdAssets(assets_dir, md_out.stem + "-assets", args.no_images, args.thumb_px)
+        mdtext = render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets,
+                                 ref=ref, latency=latency)
+        md_hits = [tok for tok in forbidden if tok in mdtext]
+        if md_hits:
+            raise SystemExit(f"ABORT: potential secret/endpoint leak in markdown report: {md_hits}")
+        md_out.parent.mkdir(parents=True, exist_ok=True)
+        md_out.write_text(mdtext, encoding="utf-8")
+        md_kb = md_out.stat().st_size / 1024
+        print(f"Wrote {md_out} ({md_kb:.0f} KB) + {assets.count} image file(s) in {assets_dir}")
+
     if not _HAVE_PIL and not args.no_images:
         print("  note: Pillow not installed — images embedded full-size (use --no-images for a small file).")
     return 0

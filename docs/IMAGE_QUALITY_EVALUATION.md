@@ -1,47 +1,24 @@
 # Image Quality Evaluation
 
-This document captures **how the portal scores image quality** — both the original methodology and the
-refreshed, benchmark-aligned metric set that replaces it. Scoring uses an **LLM-as-judge** approach:
-each generated image is sent to an evaluator model that returns a structured, per-dimension score with
-notes, strengths, weaknesses, and a summary. The dimensions are **data-driven** — the evaluator system
-prompt, the radar chart, and the comparison table are all generated from the maps in
+This document captures **how the portal scores image quality** using a **benchmark-aligned set of 13
+dimensions**. Scoring uses an **LLM-as-judge** approach: each generated image is sent to an evaluator
+model that returns a structured, per-dimension score with notes, strengths, weaknesses, and a summary.
+The dimensions are **data-driven** — the evaluator system prompt, the radar chart, and the comparison
+table are all generated from the maps in
 [`models.py`](../src/image_generation_model_comparison_portal/models.py), so the metric set can be
 expanded without touching routing or UI code.
 
-## Part 1 — Original methodology (preserved)
+## Scoring approach
 
-The first version scored every image on a fixed list of **10 dimensions**, each on an integer scale of
-**1–10**, plus an `overall_score`. Optionally, Azure AI Vision (CV) added object detection and
-bounding-box overlays.
+Every generated image is scored on a fixed set of **13 dimensions**, each on an integer scale of
+**1–10**, plus an `overall_score`. Each dimension also carries a short note, and the evaluator returns
+per-image strengths, weaknesses, and a summary. Results may optionally be augmented with Azure AI Vision
+(CV) object detection and bounding-box overlays.
 
-| # | Dimension | What it measured |
-| --- | --- | --- |
-| 1 | Prompt Adherence | Faithfulness to scene, subject, objects, constraints, intent. |
-| 2 | Text Rendering | Legibility, spelling, believable letterforms. |
-| 3 | Object Counting | Correct quantity of requested objects. |
-| 4 | Spatial Reasoning | Correct positions/relationships and scene layout. |
-| 5 | Anatomy | Body coherence: pose, limbs, hands, finger counts, ratios. |
-| 6 | Physics & Realism | Plausible lighting, shadows, reflections, gravity, materials. |
-| 7 | Color Accuracy | Requested palette and tonal relationships. |
-| 8 | Fine Detail | Sharpness of small features, textures, edges. |
-| 9 | Composition | Framing, balance, hierarchy, aesthetics. |
-| 10 | Style Adherence | Match to requested artistic/photographic style. |
-
-**Scoring mechanics (unchanged):** each dimension gets `1–10` plus a short note; an `overall_score`
-summarizes the image; results may be augmented with CV analysis; bounding boxes are drawn when CV
-detects objects.
-
-**Known limitation:** the original list was an ad-hoc set rather than one grounded in published
-text-to-image benchmarks, and it collapsed several distinct failure modes (object presence vs.
-attribute binding vs. spatial vs. action) into coarse buckets like "Prompt Adherence" and "Spatial
-Reasoning".
-
-## Part 2 — Benchmark-aligned metric set (current)
-
-The refreshed set keeps the LLM-as-judge approach and the `1–10` scale but maps the dimensions onto the
-axes most widely used by public text-to-image benchmarks and leaderboards. This makes scores easier to
-interpret against the literature and isolates the specific failure modes those benchmarks were designed
-to expose.
+The 13 dimensions map onto the axes most widely used by public text-to-image benchmarks and
+leaderboards. This makes scores easier to interpret against the literature and isolates the specific
+failure modes those benchmarks were designed to expose (object presence vs. attribute binding vs.
+spatial vs. action, rather than coarse buckets).
 
 ### Benchmarks referenced
 
@@ -55,7 +32,7 @@ to expose.
 - **Aesthetic / human-preference** signals (e.g. aesthetic predictors and human-preference scoring) —
   overall **composition and visual appeal**.
 
-### Current dimensions
+### The 13 dimensions
 
 | Key | Label | Radar | Benchmark axis modeled |
 | --- | --- | --- | --- |
@@ -73,16 +50,14 @@ to expose.
 | `composition_aesthetics` | Composition & Aesthetics | Aesthetics | Framing, balance, hierarchy, appeal (human-preference style). |
 | `style_adherence` | Style Adherence | Style | Match to requested artistic/photographic style. |
 
-### What changed vs. the original
+### Why the set is split this way
 
-- **"Prompt Adherence" was split** into `prompt_adherence` (holistic/dense-prompt fidelity),
-  `object_accuracy` (presence), and `attribute_binding` (the classic "red cube next to a blue sphere"
-  failure mode) — mirroring GenEval and T2I-CompBench.
-- **"Spatial Reasoning" was split** into `spatial_relationship` (positional) and `action_interaction`
+- **Object faithfulness is spread across three axes** — `prompt_adherence` (holistic/dense-prompt
+  fidelity), `object_accuracy` (presence), and `attribute_binding` (the classic "red cube next to a blue
+  sphere" binding failure) — mirroring GenEval and T2I-CompBench.
+- **Relationships are split** into `spatial_relationship` (positional) and `action_interaction`
   (non-spatial relations), matching T2I-CompBench's spatial vs. non-spatial split.
-- **"Composition" became `composition_aesthetics`**, explicitly tied to human-preference/aesthetic
-  signals.
-- All other original dimensions were retained with sharper definitions.
+- **`composition_aesthetics`** is explicitly tied to human-preference / aesthetic signals.
 
 ### How the evaluator is driven
 
