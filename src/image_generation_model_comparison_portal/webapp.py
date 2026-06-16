@@ -50,16 +50,45 @@ def _safe_filename(name: str) -> str:
     return cleaned.strip("-").lower()
 
 
-def _redact_config(config: dict[str, Any]) -> dict[str, Any]:
-    redacted: dict[str, Any] = {}
-    for key, value in config.items():
-        if isinstance(value, str) and "key" in key.lower() and value:
-            redacted[key] = "***redacted***"
-        elif isinstance(value, dict):
-            redacted[key] = _redact_config(value)
-        else:
-            redacted[key] = value
-    return redacted
+_SENSITIVE_KEY_MARKERS = (
+    "secret",
+    "key",
+    "token",
+    "password",
+    "passwd",
+    "credential",
+    "bearer",
+    "authorization",
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    lowered = (key or "").lower()
+    return any(marker in lowered for marker in _SENSITIVE_KEY_MARKERS)
+
+
+def _redact_config(value: Any) -> Any:
+    """Recursively redact secret-bearing fields from config-like data.
+
+    Any non-empty string stored under a key whose name suggests a credential
+    (``global_secret``, ``cv_secret``, ``apiKey``, ``token``, ``password`` ...)
+    is replaced with a placeholder so exported JSON never contains live secrets.
+    Lists are traversed too (e.g. the per-model config rows). Endpoints,
+    deployments, and API versions are intentionally kept since they are not
+    credentials and are useful for downstream notebook analysis.
+    """
+
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if isinstance(item, str) and item and _is_sensitive_key(str(key)):
+                redacted[key] = "***redacted***"
+            else:
+                redacted[key] = _redact_config(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_config(item) for item in value]
+    return value
 
 
 def _retry_status_text(reason: str, wait: int, attempt: int, total: int) -> str:
