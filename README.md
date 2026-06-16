@@ -248,7 +248,8 @@ executive scorecard plus **four comparison categories**:
 - **3 · Pricing** — published list pricing per model (per-token for Azure OpenAI
   and the MAI models, per-megapixel for FLUX), normalized to an estimated cost of
   a single 1024×1024 image so the models can be compared like-for-like;
-- **4 · Availability** — quantified capacity and latency: the **configured
+- **4 · Default Capacity and Observed Performance** — quantified capacity and
+  latency: the **configured
   request-per-minute (RPM)** limit actually set on each deployment in the test
   subscription (read from Azure — e.g. gpt-image-2 & MAI-Image-2 at 9 RPM,
   flux-2-pro at 4 RPM, MAI-Image-2.5 at 2 RPM), the region/SKU, the **measured

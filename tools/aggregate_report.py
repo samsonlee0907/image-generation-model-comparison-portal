@@ -1258,7 +1258,7 @@ def render_pricing_section(ref: dict, models_order: list[str], colors: dict[str,
 def render_availability_section(ref: dict, latency: dict, models_order: list[str],
                                 colors: dict[str, str]) -> str:
     ref_models = ref.get("models") or {}
-    out = ['<h2 id="availability">4 · Availability</h2>']
+    out = ['<h2 id="availability">4 · Default Capacity and Observed Performance</h2>']
     out.append(
         '<p class="sub">Capacity, throughput, latency and region coverage. The headline numbers here are '
         '<b>quantified</b>: the <b>configured capacity</b> column shows the actual request-per-minute (RPM) '
@@ -1367,7 +1367,7 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
         '<a href="#quality">1 · Image generation quality</a>'
         '<a href="#safety">2 · Content safety</a>'
         '<a href="#pricing">3 · Pricing</a>'
-        '<a href="#availability">4 · Availability</a></nav>',
+        '<a href="#availability">4 · Default capacity &amp; observed performance</a></nav>',
     ]
     parts.append(render_scorecard(gen, edit, safety, colors, ref, latency))
 
