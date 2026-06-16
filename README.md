@@ -206,6 +206,45 @@ portal-exports/safety-20240101-120000-abc123/
 
 The `portal-exports/` folder is git-ignored.
 
+## Aggregated Comparison Report
+
+Once you have collected several exported runs, `tools/aggregate_report.py` rolls
+them all up into a **single self-contained HTML report** that compares every
+model across all three test categories at once — image generation, image edit,
+and the content-safety guardrail.
+
+```
+python tools/aggregate_report.py \
+  --results-dir test-reports/results \
+  --out test-reports/aggregate-report.html
+```
+
+The script scans the results tree for both `results.json` (generation/edit) and
+`safety-results.json` (safety) exports and produces:
+
+- an **executive scorecard** (per-model generation quality, edit quality, and
+  safety gating rate);
+- **generation** and **edit** sections with a quality leaderboard, a
+  per-run score matrix, a 13-dimension heatmap, per-model radar charts, latency
+  and token cost, recurring strengths/weaknesses, and a thumbnail gallery (the
+  edit section emphasizes the detail-retention axes and flags any text-to-image
+  fallback rows);
+- a **content-safety** section with per-model outcome bars, a
+  severity-escalation curve (gating rate L1 → L5+), a harm-category heatmap, and
+  dedicated **leakage** (images produced at L4/L5/L5+) and **over-refusal**
+  (benign L1 prompts that were gated) tables.
+
+The output is fully offline: inline CSS, hand-built inline SVG charts, and
+base64-embedded thumbnails — no CDN, scripts, or network requests. The report
+never embeds the `config` block, so no endpoints or keys leak into it.
+
+Options:
+
+- `--no-images` — skip embedded thumbnails for a tiny, diff-friendly file.
+- `--thumb-px N` — max thumbnail edge in pixels (default 360; needs Pillow,
+  which is used only to downscale embedded thumbnails — the script otherwise
+  runs on the standard library alone).
+
 ## Rate-Limit & Transient-Error Handling
 
 Generation, image-edit, and content-safety requests automatically retry two
