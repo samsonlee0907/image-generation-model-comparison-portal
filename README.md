@@ -19,7 +19,7 @@ such as `MAI-Image-2.5` work without any code change.
 - Provides retry actions for failed image generations.
 - Exports generated images and evaluation results to PPTX.
 - Exports generated images plus a `results.json` manifest to a local folder for notebook analysis.
-- Retries rate-limited (HTTP 429) generation, edit, and safety requests automatically (fixed 60s backoff).
+- Retries rate-limited (HTTP 429, 60s backoff) and transient (502/503/504, dropped connections, timeouts; short backoff) requests automatically.
 
 ## Documentation
 
@@ -163,12 +163,20 @@ portal-exports/20240101-120000-abc123/
 
 The `portal-exports/` folder is git-ignored.
 
-## Rate-Limit Handling
+## Rate-Limit & Transient-Error Handling
 
-Azure image rate limits are enforced per minute. Generation, image-edit, and
-content-safety requests automatically retry transient rate-limit errors
-(including HTTP 429) by waiting a fixed 60 seconds between attempts, up to 5
-retries, before surfacing the error. Safety probes additionally run one request
-at a time per model (four model tracks in parallel) to avoid flooding a shared
-endpoint. While waiting, the affected result card shows a
-`Rate limited — waiting 60s (n/5)` status.
+Generation, image-edit, and content-safety requests automatically retry two
+classes of transient failure before surfacing an error:
+
+- **Rate limits** (HTTP 429 / throttling). Azure image rate limits are enforced
+  per minute, so the app waits a fixed 60 seconds between attempts, up to 5
+  retries. While waiting, the affected result card shows a
+  `Rate limited, waiting 60s (n/5)` status.
+- **Transient transport / server errors** (HTTP 502/503/504, dropped or reset
+  connections, timeouts). These usually clear within seconds, so the app retries
+  quickly (8 seconds apart, up to 3 times) and shows a
+  `Service busy, retrying 8s (n/3)` status.
+
+Content-safety gates and other permanent errors are never retried. Safety probes
+additionally run one request at a time per model (four model tracks in parallel)
+to avoid flooding a shared endpoint.

@@ -62,6 +62,20 @@ def _redact_config(config: dict[str, Any]) -> dict[str, Any]:
     return redacted
 
 
+def _retry_status_text(reason: str, wait: int, attempt: int, total: int) -> str:
+    """User-facing status while a request is being retried.
+
+    ``reason`` is ``"rate_limit"`` (per-minute throttle) or ``"transient"``
+    (connection drop / 5xx that usually clears in seconds).
+    """
+
+    if reason == "transient":
+        label = "Service busy, retrying"
+    else:
+        label = "Rate limited, waiting"
+    return f"{label} {wait}s ({attempt}/{total})"
+
+
 class RunManager:
     def __init__(self) -> None:
         self.executor = ThreadPoolExecutor(max_workers=12)
@@ -424,11 +438,11 @@ class RunManager:
                     return
             key = f"{model.name}::{prompt.id}"
 
-            def on_rate_limit(attempt: int, total: int, wait: int, _key: str = key) -> None:
+            def on_rate_limit(attempt: int, total: int, wait: int, reason: str = "rate_limit", _key: str = key) -> None:
                 self._set_safety_status(
                     run_id,
                     _key,
-                    f"Rate limited \u2014 waiting {wait}s ({attempt}/{total})",
+                    _retry_status_text(reason, wait, attempt, total),
                 )
 
             payload: Any = None
@@ -503,14 +517,14 @@ class RunManager:
         }
 
     def _make_generation_rate_limit_cb(self, run_id: str, model_name: str):
-        def on_rate_limit(attempt: int, total: int, wait: int) -> None:
+        def on_rate_limit(attempt: int, total: int, wait: int, reason: str = "rate_limit") -> None:
             with self.lock:
                 run = self.runs.get(run_id)
                 if run is None:
                     return
                 result = run["results"].get(model_name)
                 if result is not None:
-                    result["status"] = f"Rate limited \u2014 waiting {wait}s ({attempt}/{total})"
+                    result["status"] = _retry_status_text(reason, wait, attempt, total)
 
         return on_rate_limit
 

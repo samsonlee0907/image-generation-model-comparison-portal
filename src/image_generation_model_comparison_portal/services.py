@@ -144,10 +144,40 @@ _RATE_LIMIT_MARKERS = (
     "too many requests",
 )
 
+# Markers that indicate a transient transport / server error (connection drop,
+# 5xx, timeout) that is worth retrying briefly rather than surfacing as a
+# permanent failure. These are distinct from rate limits (per-minute, 60s wait).
+_TRANSIENT_MARKERS = (
+    "service unavailable",
+    "temporarily unavailable",
+    "server is busy",
+    "bad gateway",
+    "gateway timeout",
+    "connection aborted",
+    "connection reset",
+    "connection refused",
+    "connection closed",
+    "closed connection",
+    "before request was sent",
+    "remote end closed",
+    "remotedisconnected",
+    "connection error",
+    "connectionerror",
+    "max retries exceeded",
+    "timed out",
+    "read timed out",
+    "read timeout",
+)
+
 # Azure image rate limits are enforced per-minute, so a fixed 60s backoff is the
 # most reliable retry interval.
 RATE_LIMIT_RETRY_SECONDS = 60
 RATE_LIMIT_MAX_RETRIES = 5
+
+# Transient transport/5xx errors usually clear within seconds, so retry quickly
+# a few times before giving up.
+TRANSIENT_RETRY_SECONDS = 8
+TRANSIENT_MAX_RETRIES = 3
 
 
 def is_content_filter_block(message: str, payload: dict[str, Any] | None = None) -> bool:
@@ -164,6 +194,22 @@ def is_rate_limit_error(message: str, status: int = 0, payload: dict[str, Any] |
     if payload:
         blob += " " + json.dumps(payload).lower()
     return any(marker in blob for marker in _RATE_LIMIT_MARKERS)
+
+
+def is_transient_error(message: str, status: int = 0, payload: dict[str, Any] | None = None) -> bool:
+    """True for transient transport/server errors worth a short retry.
+
+    Covers 502/503/504 responses and connection-level failures (dropped or
+    reset connections, timeouts). Rate limits (429) are handled separately with
+    a longer per-minute backoff and are intentionally excluded here.
+    """
+
+    if status in (502, 503, 504):
+        return True
+    blob = (message or "").lower()
+    if payload:
+        blob += " " + json.dumps(payload).lower()
+    return any(marker in blob for marker in _TRANSIENT_MARKERS)
 
 
 def parse_size(value: str | None) -> tuple[int, int]:
@@ -454,40 +500,77 @@ class ApiClient:
         return json.loads(content)
 
     # ------------------------------------------------------------------
-    # Rate-limit retry wrappers (public entry points)
+    # Retry wrappers (public entry points)
     # ------------------------------------------------------------------
-    def _call_with_rate_limit_retry(
+    def _call_with_retry(
         self,
         func: Callable[..., GenerationResult],
         *args: Any,
-        on_rate_limit: Callable[[int, int, int], None] | None = None,
+        on_rate_limit: Callable[..., None] | None = None,
     ) -> GenerationResult:
-        """Call ``func`` and retry on transient rate-limit errors.
+        """Call ``func`` and retry on transient rate-limit / transport errors.
 
-        Azure image rate limits reset per minute, so we wait a fixed 60s
-        between attempts (up to ``RATE_LIMIT_MAX_RETRIES`` times) before giving
-        up and re-raising the original error.
+        Two independent retry budgets are tracked:
+
+        * **Rate limits** (HTTP 429 / throttling) reset per minute, so we wait a
+          fixed 60s between attempts (up to ``RATE_LIMIT_MAX_RETRIES``).
+        * **Transient transport/server errors** (502/503/504, dropped or reset
+          connections, timeouts) usually clear within seconds, so we retry
+          quickly (``TRANSIENT_RETRY_SECONDS``) a few times.
+
+        Anything else -- including content-safety gates -- is re-raised
+        immediately. ``on_rate_limit`` is invoked before each backoff with
+        ``(attempt, total, wait, reason)``; ``reason`` is ``"rate_limit"`` or
+        ``"transient"``.
         """
 
-        attempt = 0
+        rate_limit_attempts = 0
+        transient_attempts = 0
         while True:
             try:
                 return func(*args)
-            except ApiError as exc:
-                rate_limited = is_rate_limit_error(str(exc), exc.status, exc.payload)
-                if not rate_limited or attempt >= RATE_LIMIT_MAX_RETRIES:
-                    raise
-            except Exception as exc:  # noqa: BLE001 - classify, then re-raise
-                if not is_rate_limit_error(str(exc)) or attempt >= RATE_LIMIT_MAX_RETRIES:
+            except Exception as exc:  # noqa: BLE001 - classify, then retry or re-raise
+                message = str(exc)
+                status = getattr(exc, "status", 0) or 0
+                payload = getattr(exc, "payload", None)
+                if is_rate_limit_error(message, status, payload) and rate_limit_attempts < RATE_LIMIT_MAX_RETRIES:
+                    rate_limit_attempts += 1
+                    attempt, total, wait, reason = (
+                        rate_limit_attempts,
+                        RATE_LIMIT_MAX_RETRIES,
+                        RATE_LIMIT_RETRY_SECONDS,
+                        "rate_limit",
+                    )
+                elif is_transient_error(message, status, payload) and transient_attempts < TRANSIENT_MAX_RETRIES:
+                    transient_attempts += 1
+                    attempt, total, wait, reason = (
+                        transient_attempts,
+                        TRANSIENT_MAX_RETRIES,
+                        TRANSIENT_RETRY_SECONDS,
+                        "transient",
+                    )
+                else:
                     raise
 
-            attempt += 1
             if on_rate_limit is not None:
-                try:
-                    on_rate_limit(attempt, RATE_LIMIT_MAX_RETRIES, RATE_LIMIT_RETRY_SECONDS)
-                except Exception:  # noqa: BLE001 - status callbacks must never break retries
-                    pass
-            time.sleep(RATE_LIMIT_RETRY_SECONDS)
+                self._notify_retry(on_rate_limit, attempt, total, wait, reason)
+            time.sleep(wait)
+
+    @staticmethod
+    def _notify_retry(callback: Callable[..., None], attempt: int, total: int, wait: int, reason: str) -> None:
+        """Invoke a retry-status callback, tolerating older 3-arg signatures."""
+
+        for call in (
+            lambda: callback(attempt, total, wait, reason),
+            lambda: callback(attempt, total, wait),
+        ):
+            try:
+                call()
+                return
+            except TypeError:
+                continue
+            except Exception:  # noqa: BLE001 - status callbacks must never break retries
+                return
 
     def generate_text(
         self,
@@ -496,9 +579,9 @@ class ApiClient:
         size: str,
         quality: str,
         output_format: str,
-        on_rate_limit: Callable[[int, int, int], None] | None = None,
+        on_rate_limit: Callable[..., None] | None = None,
     ) -> GenerationResult:
-        return self._call_with_rate_limit_retry(
+        return self._call_with_retry(
             self._generate_text_once,
             model,
             prompt,
@@ -640,9 +723,9 @@ class ApiClient:
         mask_path: str | None,
         size: str,
         output_format: str,
-        on_rate_limit: Callable[[int, int, int], None] | None = None,
+        on_rate_limit: Callable[..., None] | None = None,
     ) -> GenerationResult:
-        return self._call_with_rate_limit_retry(
+        return self._call_with_retry(
             self._generate_edit_once,
             model,
             prompt,
@@ -917,7 +1000,7 @@ class ApiClient:
         self,
         model: ModelConfig,
         prompt: str,
-        on_rate_limit: Callable[[int, int, int], None] | None = None,
+        on_rate_limit: Callable[..., None] | None = None,
     ) -> dict[str, Any]:
         """Observe one model's baseline content-safety behavior for a prompt.
 
