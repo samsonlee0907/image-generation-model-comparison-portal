@@ -749,18 +749,45 @@ function renderPreview(node, result) {
     }
     const offsetLeft = imageRect.left - host.left;
     const offsetTop = imageRect.top - host.top;
+    const imageRight = offsetLeft + drawWidth;
+    const imageBottom = offsetTop + drawHeight;
+    const labels = [];
     result.cv.objects.forEach((box) => {
       const div = document.createElement("div");
       div.className = "bbox";
-      div.style.left = `${offsetLeft + (box.x / image.naturalWidth) * drawWidth}px`;
-      div.style.top = `${offsetTop + (box.y / image.naturalHeight) * drawHeight}px`;
+      const boxLeft = offsetLeft + (box.x / image.naturalWidth) * drawWidth;
+      const boxTop = offsetTop + (box.y / image.naturalHeight) * drawHeight;
+      div.style.left = `${boxLeft}px`;
+      div.style.top = `${boxTop}px`;
       div.style.width = `${(box.w / image.naturalWidth) * drawWidth}px`;
       div.style.height = `${(box.h / image.naturalHeight) * drawHeight}px`;
       const label = document.createElement("span");
       label.className = "bbox-label";
       label.textContent = `${box.label} ${Math.round(box.confidence * 100)}%`;
+      // The label sits above the box by default; if there isn't room above it
+      // (box hugging the image top), drop it just inside the box top instead so
+      // it isn't clipped by the preview frame.
+      if (boxTop - offsetTop < 30) {
+        label.classList.add("inside");
+      }
       div.appendChild(label);
       overlay.appendChild(div);
+      labels.push({ label, boxLeft });
+    });
+    // Clamp labels that would spill past the left/right edge of the image so the
+    // full text stays visible within the frame.
+    labels.forEach(({ label, boxLeft }) => {
+      const width = label.offsetWidth;
+      let left = 0;
+      if (boxLeft + width > imageRight) {
+        left = imageRight - (boxLeft + width) - 2;
+      }
+      if (boxLeft + left < offsetLeft) {
+        left = offsetLeft - boxLeft + 2;
+      }
+      if (left !== 0) {
+        label.style.left = `${left}px`;
+      }
     });
   };
   node._redrawBoxes = renderBoxes;

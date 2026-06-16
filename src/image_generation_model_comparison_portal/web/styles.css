@@ -622,6 +622,10 @@ label span,
   white-space: nowrap;
 }
 
+.bbox-label.inside {
+  top: 4px;
+}
+
 .result-actions {
   display: flex;
   gap: 10px;
