@@ -113,6 +113,61 @@ MODEL_PREF_ORDER = ["gpt-image-2", "flux-2-pro", "MAI-Image-2", "MAI-Image-2.5"]
 # Plot palette (color-blind friendly-ish, distinct per model).
 PALETTE = ["#2563EB", "#DC2626", "#16A34A", "#F59E0B", "#7C3AED", "#0891B2", "#DB2777", "#65A30D"]
 
+# Default location of the editable pricing/availability reference data.
+DEFAULT_REFERENCE = "model-reference.json"
+
+
+# --------------------------------------------------------------------------- #
+# Pricing / availability reference data (external, editable JSON)
+# --------------------------------------------------------------------------- #
+def load_reference(path: Path | None) -> dict[str, Any]:
+    """Load the pricing/availability reference JSON.
+
+    Falls back to the ``model-reference.json`` shipped next to this script, and
+    returns an empty structure if nothing is found so the report still renders.
+    """
+    candidates = [path] if path else []
+    candidates.append(Path(__file__).with_name(DEFAULT_REFERENCE))
+    for cand in candidates:
+        if cand and cand.exists():
+            try:
+                return json.load(open(cand, encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+    return {"models": {}, "as_of": "", "currency": "USD", "assumptions": {}}
+
+
+def price_per_image(entry: dict[str, Any], assumptions: dict[str, Any]) -> float | None:
+    """Normalized estimated cost of one 1024x1024 image, for cross-model comparison."""
+    if not entry:
+        return None
+    rates = entry.get("rates") or {}
+    if entry.get("pricing_model") == "per_megapixel":
+        if isinstance(entry.get("est_per_image_usd"), (int, float)):
+            return float(entry["est_per_image_usd"])
+        return float(rates["first_mp"]) if isinstance(rates.get("first_mp"), (int, float)) else None
+    if entry.get("pricing_model") == "per_token":
+        out_tok = assumptions.get("image_output_tokens_per_image", 1300)
+        in_tok = assumptions.get("text_input_tokens_per_image", 120)
+        out_rate = rates.get("image_output_per_1m")
+        in_rate = rates.get("text_input_per_1m", 0)
+        if not isinstance(out_rate, (int, float)):
+            return None
+        return out_tok / 1e6 * float(out_rate) + in_tok / 1e6 * float(in_rate or 0)
+    return None
+
+
+def price_headline(entry: dict[str, Any]) -> str:
+    """Compact pricing label for the scorecard."""
+    if not entry:
+        return "—"
+    rates = entry.get("rates") or {}
+    if entry.get("pricing_model") == "per_megapixel" and isinstance(rates.get("first_mp"), (int, float)):
+        return f"${rates['first_mp']:g}/MP"
+    if entry.get("pricing_model") == "per_token" and isinstance(rates.get("image_output_per_1m"), (int, float)):
+        return f"${rates['image_output_per_1m']:g}/1M out"
+    return "—"
+
 
 # --------------------------------------------------------------------------- #
 # Small helpers
@@ -624,14 +679,20 @@ body{margin:0;font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-s
 h1{font-size:30px;margin:0 0 4px;}
 h2{font-size:23px;margin:46px 0 6px;border-bottom:1px solid #1e293b;padding-bottom:8px;}
 h3{font-size:17px;margin:26px 0 8px;color:#cbd5e1;}
+h3.cat-sub{font-size:20px;color:#f1f5f9;border-top:1px solid #1e293b;padding-top:18px;margin-top:34px;}
 a{color:#60a5fa;}
+nav.toc{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px;}
+nav.toc a{display:inline-block;background:#0f1a30;border:1px solid #1e293b;border-radius:999px;
+  padding:5px 13px;font-size:13px;font-weight:600;text-decoration:none;}
+nav.toc a:hover{background:#15233f;}
 .muted{color:#94a3b8;}
 .sub{color:#94a3b8;margin:0 0 14px;}
 .legend{font-size:12.5px;color:#94a3b8;margin:6px 0 0;}
 table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px;}
-th,td{border:1px solid #1e293b;padding:7px 9px;text-align:center;}
+th,td{border:1px solid #1e293b;padding:7px 9px;text-align:center;overflow-wrap:anywhere;word-break:break-word;}
 th{background:#111c33;color:#cbd5e1;font-weight:600;}
-td.label,th.label{text-align:left;white-space:nowrap;}
+td.label,th.label{text-align:left;}
+td.nowrap,th.nowrap{white-space:nowrap;}
 td.score{font-weight:700;color:#f8fafc;}
 .win{outline:2px solid #fbbf24;outline-offset:-2px;}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:14px 0;}
@@ -663,7 +724,7 @@ td.score{font-weight:700;color:#f8fafc;}
 .run-sum{margin:0 0 6px;}
 details.prompt{margin:4px 0 8px;}
 details.prompt summary{cursor:pointer;color:#60a5fa;font-size:12.5px;}
-details.prompt p{background:#0f1a30;border:1px solid #1e293b;border-radius:8px;padding:8px 10px;margin:6px 0 0;white-space:pre-wrap;}
+details.prompt p{background:#0f1a30;border:1px solid #1e293b;border-radius:8px;padding:8px 10px;margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;}
 @media(max-width:640px){.refimg{grid-template-columns:1fr;}}
 .callout{background:#231603;border:1px solid #92660a;border-radius:10px;padding:12px 14px;margin:14px 0;font-size:13.5px;}
 .callout.warn{background:#2a0e0e;border-color:#7f1d1d;}
@@ -684,8 +745,11 @@ def _legend(models: list[str], colors: dict[str, str]) -> str:
     return f'<div class="legend">{chips}</div>'
 
 
-def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str]) -> str:
+def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str],
+                     ref: dict, latency: dict[str, float | None]) -> str:
     models = sorted(set(gen["order"]) | set(edit["order"]) | set(safety["models"]), key=model_sort_key)
+    ref_models = ref.get("models") or {}
+    assumptions = ref.get("assumptions") or {}
 
     def best(metric_getter, higher=True):
         vals = {m: metric_getter(m) for m in models}
@@ -696,6 +760,8 @@ def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str]
 
     best_gen = best(lambda m: gen["models"].get(m, {}).get("overall_avg"))
     best_edit = best(lambda m: edit["models"].get(m, {}).get("overall_avg"))
+    cheapest = best(lambda m: price_per_image(ref_models.get(m, {}), assumptions), higher=False)
+    fastest = best(lambda m: latency.get(m), higher=False)
 
     cards = []
     for m in models:
@@ -705,35 +771,45 @@ def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str]
         e_txt = ("N/A" if em.get("excluded") else fmt(e)) + ("" if em.get("excluded") or m != best_edit else " 🏆")
         hsr = safety["high_sev_rate"].get(m)
         hsr_txt = f"{hsr*100:.0f}%" if isinstance(hsr, (int, float)) else "—"
+        ppi = price_per_image(ref_models.get(m, {}), assumptions)
+        ppi_txt = (f"≈ ${ppi:.3f}" if isinstance(ppi, (int, float)) else "—") + (
+            " 🏆" if m == cheapest else "")
+        lat = latency.get(m)
+        lat_txt = (f"{lat:.0f}s" if isinstance(lat, (int, float)) else "—") + (
+            " 🏆" if m == fastest else "")
         cards.append(
             f'<div class="card"><h4><span class="swatch" style="background:{colors[m]}"></span>{esc(m)}</h4>'
             f'<div class="kv"><span>Generation quality</span>'
             f'<b>{fmt(g)}{" 🏆" if m==best_gen else ""}</b></div>'
-            f'<div class="kv"><span>Edit quality</span>'
-            f'<b>{e_txt}</b></div>'
+            f'<div class="kv"><span>Edit quality</span><b>{e_txt}</b></div>'
             f'<div class="kv"><span>Severe-prompt gating <span class="muted small">(L4–L5+)</span></span>'
-            f'<b>{hsr_txt}</b></div></div>'
+            f'<b>{hsr_txt}</b></div>'
+            f'<div class="kv"><span>Est. price / image</span><b>{ppi_txt}</b></div>'
+            f'<div class="kv"><span>Measured latency</span><b>{lat_txt}</b></div></div>'
         )
     return (
         '<h2 id="scorecard">Executive Scorecard</h2>'
-        '<p class="sub">Generation / edit quality is the average evaluator score (0–10) across that '
-        'category\u2019s runs. <b>Edit quality is N/A for models without image-edit support</b> '
-        '(they fall back to plain text-to-image and are excluded from the edit comparison). The safety '
-        'figure is the share of genuinely unsafe prompts (severity L4–L5+) that each model gated — higher '
-        'means it blocked more of the harmful requests. Benign-prompt sensitivity is covered in the '
-        'Safety section rather than collapsed into one number.</p>'
+        '<p class="sub">One row per comparison axis. <b>Generation / edit quality</b> is the average '
+        'evaluator score (0–10); edit quality is <b>N/A</b> for models without image-edit support. '
+        '<b>Severe-prompt gating</b> is the share of genuinely unsafe (L4–L5+) prompts blocked. '
+        '<b>Est. price / image</b> normalizes published pricing to one 1024×1024 image (see §3 for '
+        'assumptions), and <b>measured latency</b> is the average wall-clock time observed in this test '
+        'set (see §4). 🏆 marks the leader on each axis.</p>'
         f'<div class="cards">{"".join(cards)}</div>'
     )
 
 
 def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor: str,
-                           emphasize_retention: bool, no_images: bool, thumb_px: int) -> str:
+                           emphasize_retention: bool, no_images: bool, thumb_px: int,
+                           title_tag: str = "h2", title_class: str = "") -> str:
     order = agg["order"]
     comp = agg.get("comp_order") or order
     runs = agg["runs"]
+    cls = f' class="{title_class}"' if title_class else ""
+    heading = f'<{title_tag} id="{anchor}"{cls}>{esc(title)}</{title_tag}>'
     if not order:
-        return f'<h2 id="{anchor}">{esc(title)}</h2><p class="muted">No {esc(title.lower())} runs found.</p>'
-    out = [f'<h2 id="{anchor}">{esc(title)}</h2>']
+        return heading + f'<p class="muted">No {esc(title.lower())} runs found.</p>'
+    out = [heading]
 
     # Reference image (the shared source every edit was applied to).
     if emphasize_retention and not no_images:
@@ -905,8 +981,8 @@ def render_safety_section(agg: dict, safety_runs: list[dict], colors: dict[str, 
     models = agg["models"]
     cats = agg["categories"]
     if not models:
-        return '<h2 id="safety">Content Safety Guardrail</h2><p class="muted">No safety runs found.</p>'
-    out = ['<h2 id="safety">Content Safety Guardrail</h2>']
+        return '<h2 id="safety">2 · Content Safety</h2><p class="muted">No safety runs found.</p>'
+    out = ['<h2 id="safety">2 · Content Safety</h2>']
     out.append('<p class="sub">Each model received prompts that escalate in severity across four harm '
                'categories, and we record whether the platform <b>gated</b> the request (input/output '
                'filtered) or the model <b>produced</b> an image. There is deliberately <b>no single safety '
@@ -919,13 +995,13 @@ def render_safety_section(agg: dict, safety_runs: list[dict], colors: dict[str, 
 
     # 1) Severity scale explainer FIRST, with example prompts from the battery.
     out.append("<h3>Severity scale — what L1 to L5+ mean</h3>")
-    out.append('<p class="legend">Read this first. The example prompts are taken from the actual probe so '
-               'you can see what each level looks like before reading the outcomes.</p>')
+    out.append('<p class="legend">Read this first. The example prompts show what each level looks like '
+               'before you read the outcomes.</p>')
     ex = agg.get("level_examples", {})
     tier_bg = {"benign": "#14321f", "mild": "#3a2f0a", "high": "#3a1212"}
     out.append('<table><tr><th>Level</th><th class="label">Tier</th>'
                '<th class="label">What it represents</th>'
-               '<th class="label">Example prompt (from the battery)</th></tr>')
+               '<th class="label">Example prompt</th></tr>')
     for lvl in LEVEL_ORDER:
         tier, name, meaning = LEVEL_INFO.get(lvl, ("benign", lvl, ""))
         cell = ex.get(lvl) or {}
@@ -1050,7 +1126,142 @@ def _truncate(text: Any, n: int) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_px) -> str:
+def _rates_text(entry: dict) -> str:
+    rates = entry.get("rates") or {}
+    if entry.get("pricing_model") == "per_token":
+        bits = []
+        if isinstance(rates.get("text_input_per_1m"), (int, float)):
+            bits.append(f"${rates['text_input_per_1m']:g} text-in")
+        if isinstance(rates.get("image_input_per_1m"), (int, float)):
+            bits.append(f"${rates['image_input_per_1m']:g} image-in")
+        if isinstance(rates.get("image_output_per_1m"), (int, float)):
+            bits.append(f"${rates['image_output_per_1m']:g} image-out")
+        return " · ".join(bits) + " <span class=\"muted small\">/ 1M tokens</span>" if bits else "—"
+    if entry.get("pricing_model") == "per_megapixel":
+        bits = []
+        if isinstance(rates.get("first_mp"), (int, float)):
+            bits.append(f"${rates['first_mp']:g} first MP")
+        if isinstance(rates.get("additional_mp"), (int, float)):
+            bits.append(f"${rates['additional_mp']:g} add'l MP")
+        if isinstance(rates.get("reference_image_per_mp"), (int, float)):
+            bits.append(f"${rates['reference_image_per_mp']:g} ref-img/MP")
+        return " · ".join(bits) if bits else "—"
+    return "—"
+
+
+def render_pricing_section(ref: dict, models_order: list[str], colors: dict[str, str]) -> str:
+    ref_models = ref.get("models") or {}
+    assumptions = ref.get("assumptions") or {}
+    as_of = ref.get("as_of") or "n/a"
+    out = ['<h2 id="pricing">3 · Pricing</h2>']
+    out.append(
+        '<p class="sub">Published list pricing for each model, gathered from Azure pricing pages and '
+        f'Microsoft release material <b>as of {esc(as_of)}</b>. Vendors meter these models differently — '
+        'Azure OpenAI and the MAI models charge <b>per token</b>, while FLUX 2 Pro charges <b>per '
+        'megapixel</b> — so the final column normalizes everything to the estimated cost of a single '
+        '1024×1024 image for a like-for-like comparison. Always confirm against live pricing before '
+        'budgeting; promotional or regional rates may differ.</p>')
+    out.append('<table><tr><th class="label">Model</th><th class="label">Vendor</th>'
+               '<th>Pricing model</th><th class="label">Published rates</th>'
+               '<th>Est. $ / 1024² image</th><th class="label">Source</th></tr>')
+
+    priced = {m: price_per_image(ref_models.get(m, {}), assumptions) for m in models_order}
+    nums = {m: v for m, v in priced.items() if isinstance(v, (int, float))}
+    cheapest = min(nums, key=nums.get) if nums else None
+    pm_label = {"per_token": "Per token", "per_megapixel": "Per megapixel"}
+    for m in models_order:
+        e = ref_models.get(m)
+        if not e:
+            out.append(f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}">'
+                       f'</span>{esc(m)}</td><td colspan="5" class="muted label">No reference pricing on file.</td></tr>')
+            continue
+        ppi = priced.get(m)
+        ppi_txt = f"≈ ${ppi:.3f}" if isinstance(ppi, (int, float)) else "—"
+        win = " win" if m == cheapest else ""
+        src_url = e.get("source_url", "")
+        src = esc(e.get("source", "—"))
+        src_html = f'<a href="{esc(src_url)}" rel="noreferrer">{src}</a>' if src_url else src
+        conf = e.get("confidence")
+        conf_html = f'<div class="muted small">{esc(conf)}</div>' if conf else ""
+        out.append(
+            f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>{esc(m)}</td>'
+            f'<td class="label small">{esc(e.get("vendor","—"))}</td>'
+            f'<td class="small">{esc(pm_label.get(e.get("pricing_model"), e.get("pricing_model","—")))}</td>'
+            f'<td class="label small">{_rates_text(e)}</td>'
+            f'<td class="score{win}">{ppi_txt}</td>'
+            f'<td class="label small">{src_html}{conf_html}</td></tr>')
+    out.append("</table>")
+
+    note = assumptions.get("note")
+    flash = (ref_models.get("MAI-Image-2.5") or {}).get("flash_variant")
+    out.append('<div class="callout"><b>How the per-image estimate is built:</b> token-priced models are '
+               f'charged on ≈{assumptions.get("image_output_tokens_per_image", 1300)} image-output tokens + '
+               f'≈{assumptions.get("text_input_tokens_per_image", 120)} prompt tokens per image; FLUX uses its '
+               'published per-megapixel rate (1024² ≈ 1 MP). ' + (esc(note) + " " if note else "") +
+               ('A cheaper <b>MAI-Image-2.5 Flash</b> tier also exists '
+                f'(${flash.get("text_image_input_per_1m"):g}/1M in · ${flash.get("image_output_per_1m"):g}/1M out). '
+                if flash else "") +
+               'gpt-image-2 rates shown are gpt-image-1 reference rates, as exact gpt-image-2 pricing is not '
+               'separately published.</div>')
+    return "".join(out)
+
+
+def render_availability_section(ref: dict, latency: dict, models_order: list[str],
+                                colors: dict[str, str]) -> str:
+    ref_models = ref.get("models") or {}
+    out = ['<h2 id="availability">4 · Availability</h2>']
+    out.append(
+        '<p class="sub">Deployment shape, default capacity / throughput and region coverage for each '
+        'model, plus the <b>average wall-clock latency actually measured in this test set</b> (across the '
+        'generation and edit runs). Quota and region figures are reference values from Microsoft docs and '
+        'are raised through standard Azure quota requests; latency is empirical and will vary with region, '
+        'load, image size and quality settings.</p>')
+    out.append('<table><tr><th class="label">Model</th><th class="label">Deployment</th>'
+               '<th class="label">Default quota / throughput</th><th class="label">Regions</th>'
+               '<th>Measured avg latency</th><th class="label">Source</th></tr>')
+
+    nums = {m: v for m, v in latency.items() if isinstance(v, (int, float))}
+    fastest = min(nums, key=nums.get) if nums else None
+    for m in models_order:
+        e = ref_models.get(m) or {}
+        lat = latency.get(m)
+        lat_txt = f"{lat:.1f}s" if isinstance(lat, (int, float)) else "—"
+        win = " win" if m == fastest else ""
+        regions = e.get("regions") or []
+        reg_txt = "<br>".join(esc(r) for r in regions) if regions else "—"
+        quota = esc(e.get("quota", "—"))
+        thru = e.get("throughput")
+        thru_html = f'<div class="muted small">{esc(thru)}</div>' if thru else ""
+        src_url = e.get("source_url", "")
+        src = esc(e.get("source", "—"))
+        src_html = f'<a href="{esc(src_url)}" rel="noreferrer">{src}</a>' if src_url else src
+        out.append(
+            f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>{esc(m)}</td>'
+            f'<td class="label small">{esc(e.get("deployment","—"))}</td>'
+            f'<td class="label small">{quota}{thru_html}</td>'
+            f'<td class="label small">{reg_txt}</td>'
+            f'<td class="score{win}">{lat_txt}</td>'
+            f'<td class="label small">{src_html}</td></tr>')
+    out.append("</table>")
+
+    rm_url = ref.get("region_matrix_url")
+    q_url = ref.get("quota_doc_url")
+    links = []
+    if rm_url:
+        links.append(f'<a href="{esc(rm_url)}" rel="noreferrer">Foundry region availability matrix</a>')
+    if q_url:
+        links.append(f'<a href="{esc(q_url)}" rel="noreferrer">Foundry quotas &amp; limits</a>')
+    if links:
+        out.append('<p class="legend">Region &amp; quota references: ' + " · ".join(links) +
+                   '. FLUX and the MAI models deploy through a Global Standard shared quota pool rather than '
+                   'per-region capacity, so confirm the live region list and per-SKU limits in the portal.</p>')
+    return "".join(out)
+
+
+def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_px,
+                ref=None, latency=None) -> str:
+    ref = ref or {"models": {}, "assumptions": {}}
+    latency = latency or {}
     models_all = sorted(set(gen["order"]) | set(edit["order"]) | set(safety["models"]), key=model_sort_key)
     colors = color_for_models(models_all)
     parts = [
@@ -1068,14 +1279,33 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
         f'(harm categories × severity levels L1–L5+). Each section explains what its runs test before '
         f'showing the scores.</p>',
         _legend(models_all, colors),
+        '<nav class="toc" aria-label="Report sections">'
+        '<a href="#scorecard">Executive scorecard</a>'
+        '<a href="#quality">1 · Image generation quality</a>'
+        '<a href="#safety">2 · Content safety</a>'
+        '<a href="#pricing">3 · Pricing</a>'
+        '<a href="#availability">4 · Availability</a></nav>',
     ]
-    parts.append(render_scorecard(gen, edit, safety, colors))
-    parts.append(render_quality_section(gen, colors, "Image Generation", "generation",
-                                         emphasize_retention=False, no_images=no_images, thumb_px=thumb_px))
-    parts.append(render_quality_section(edit, colors, "Image Edit", "edit",
-                                         emphasize_retention=True, no_images=no_images, thumb_px=thumb_px))
-    parts.append(render_safety_section(safety, safety_runs, colors))
+    parts.append(render_scorecard(gen, edit, safety, colors, ref, latency))
 
+    # Category 1 — image generation quality (generation + editing nested together).
+    parts.append('<h2 id="quality">1 · Image Generation Quality '
+                 '<span class="muted" style="font-size:16px">(including editing)</span></h2>')
+    parts.append('<p class="sub">How well each model turns a prompt into an image, scored by the evaluator '
+                 'LLM across 13 benchmark-aligned dimensions. Text-to-image generation and prompt-guided '
+                 'image editing are reported as two subsections below.</p>')
+    parts.append(render_quality_section(gen, colors, "Text-to-image generation", "generation",
+                                        emphasize_retention=False, no_images=no_images, thumb_px=thumb_px,
+                                        title_tag="h3", title_class="cat-sub"))
+    parts.append(render_quality_section(edit, colors, "Prompt-guided image editing", "edit",
+                                        emphasize_retention=True, no_images=no_images, thumb_px=thumb_px,
+                                        title_tag="h3", title_class="cat-sub"))
+
+    parts.append(render_safety_section(safety, safety_runs, colors))
+    parts.append(render_pricing_section(ref, models_all, colors))
+    parts.append(render_availability_section(ref, latency, models_all, colors))
+
+    as_of = (ref or {}).get("as_of") or "n/a"
     parts.append(
         '<footer><h3>Methodology &amp; caveats</h3><ul class="tight">'
         f'<li>Quality scores are produced by the evaluator LLM '
@@ -1089,6 +1319,9 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
         'rather than collapsing every level into one score.</li>'
         '<li>Models without edit support fall back to text-to-image (tagged <code>(fb)</code>) and are '
         'reported as N/A in the edit comparison rather than scored as edits.</li>'
+        f'<li><b>Pricing (§3) and quota/region data (§4) are external reference values</b> gathered from '
+        f'Azure pricing pages and Microsoft release material as of {esc(as_of)}, and should be confirmed '
+        'against live pricing/quota; <b>latency (§4) is measured</b> from this test set and is empirical.</li>'
         '<li>All source exports redact secrets; this report embeds no endpoint or API-key material.</li>'
         '</ul></footer>'
     )
@@ -1105,6 +1338,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default="test-reports/aggregate-report.html", type=Path)
     ap.add_argument("--no-images", action="store_true", help="Skip embedding image thumbnails (smaller file).")
     ap.add_argument("--thumb-px", default=360, type=int, help="Max thumbnail edge in px (needs Pillow).")
+    ap.add_argument("--reference", default=None, type=Path,
+                    help="Pricing/availability reference JSON (defaults to tools/model-reference.json).")
     args = ap.parse_args(argv)
 
     results_dir = args.results_dir
@@ -1120,6 +1355,24 @@ def main(argv: list[str] | None = None) -> int:
     edit = aggregate_quality(edit_runs, category="edit")
     merged_cells = dedupe_safety_cells(safety_runs)
     safety = aggregate_safety(merged_cells)
+
+    ref = load_reference(args.reference)
+
+    # Measured latency: average wall-clock across this test set (generation + edit),
+    # weighted by run count, per model. Pure data — not researched reference values.
+    latency: dict[str, float | None] = {}
+    models_all = set(gen["order"]) | set(edit["order"]) | set(safety["models"])
+    for m in models_all:
+        samples: list[tuple[float, int]] = []
+        for agg, runs in ((gen, len(gen_runs)), (edit, len(edit_runs))):
+            mm = agg["models"].get(m)
+            if mm and isinstance(mm.get("elapsed_avg"), (int, float)) and not mm.get("excluded"):
+                samples.append((mm["elapsed_avg"], max(runs, 1)))
+        if samples:
+            total_w = sum(w for _, w in samples)
+            latency[m] = sum(v * w for v, w in samples) / total_w
+        else:
+            latency[m] = None
 
     evaluator = "unknown"
     for run in quality_runs + [{"models": {}}]:
@@ -1147,7 +1400,8 @@ def main(argv: list[str] | None = None) -> int:
         "evaluator": evaluator,
     }
 
-    htmltext = render_html(gen, edit, safety, safety_runs, dataset_meta, args.no_images, args.thumb_px)
+    htmltext = render_html(gen, edit, safety, safety_runs, dataset_meta, args.no_images, args.thumb_px,
+                           ref=ref, latency=latency)
 
     # Defensive secret/endpoint check. The config block is never rendered, but
     # guard against accidental leakage of endpoints or keys into the output.

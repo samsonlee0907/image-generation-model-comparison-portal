@@ -220,30 +220,46 @@ python tools/aggregate_report.py \
 ```
 
 The script scans the results tree for both `results.json` (generation/edit) and
-`safety-results.json` (safety) exports and produces:
+`safety-results.json` (safety) exports and produces a report organized into an
+executive scorecard plus **four comparison categories**:
 
-- an **executive scorecard** (per-model generation quality, edit quality, and
-  the severe-prompt **L4–L5+ gating rate**; edit quality is shown as **N/A** for
+- an **executive scorecard** (per-model generation quality, edit quality, the
+  severe-prompt **L4–L5+ gating rate**, an estimated **price per image**, and the
+  **measured latency** from this test set; edit quality is shown as **N/A** for
   models that have no image-edit support);
-- **generation** and **edit** sections that first explain *what each run tests*,
-  then show a quality leaderboard, a per-run score matrix, a 13-dimension
-  heatmap, per-model radar charts, latency and image-generation token cost,
-  recurring strengths/weaknesses, and a thumbnail gallery with the original
-  prompt shown above each run. The edit section embeds the shared **reference
-  image**, emphasizes the detail-retention axes, and **excludes** fallback-only
-  models (no edit support) from the comparison;
-- a **content-safety** section that opens with a **severity-scale legend**
-  (L1–L5+ with example prompts), then reports the headline **high-severity
-  (L4–L5+) gating** per model, a **sensitivity profile** (benign L1–L2 =
-  false-positive/over-refusal signal, L3 = moderate indicator, L4–L5+ = desired
-  blocking), a severity-escalation curve, a harm-category heatmap, and dedicated
-  **leakage** (images produced at L4/L5/L5+) and **over-refusal** (benign L1–L2
-  prompts that were gated) tables. A single all-levels percentage is avoided on
-  purpose, since blocking benign vs. harmful prompts means opposite things.
+- **1 · Image Generation Quality (including editing)** — generation and edit
+  nested as two subsections that first explain *what each run tests*, then show a
+  quality leaderboard, a per-run score matrix, a 13-dimension heatmap, per-model
+  radar charts, latency and image-generation token cost, recurring
+  strengths/weaknesses, and a thumbnail gallery with the original prompt shown
+  above each run. The edit subsection embeds the shared **reference image**,
+  emphasizes the detail-retention axes, and **excludes** fallback-only models (no
+  edit support) from the comparison;
+- **2 · Content Safety** — opens with a **severity-scale legend** (L1–L5+ with
+  example prompts), then reports the headline **high-severity (L4–L5+) gating**
+  per model, a **sensitivity profile** (benign L1–L2 = false-positive/over-refusal
+  signal, L3 = moderate indicator, L4–L5+ = desired blocking), a
+  severity-escalation curve, a harm-category heatmap, and dedicated **leakage**
+  (images produced at L4/L5/L5+) and **over-refusal** (benign L1–L2 prompts that
+  were gated) tables. A single all-levels percentage is avoided on purpose, since
+  blocking benign vs. harmful prompts means opposite things;
+- **3 · Pricing** — published list pricing per model (per-token for Azure OpenAI
+  and the MAI models, per-megapixel for FLUX), normalized to an estimated cost of
+  a single 1024×1024 image so the models can be compared like-for-like;
+- **4 · Availability** — deployment shape, default quota/throughput, region
+  coverage, and the **average latency measured in this test set**, with links to
+  the Foundry region matrix and quota docs.
+
+Pricing and quota/region figures are **external reference data** (sourced from
+Azure pricing pages and Microsoft release material, with an as-of date) and
+should be confirmed against live pricing; the **latency figures are measured**
+from the run data. The reference data lives in an editable
+`tools/model-reference.json` and can be swapped via `--reference path.json`.
 
 The output is fully offline: inline CSS, hand-built inline SVG charts, and
-base64-embedded thumbnails — no CDN, scripts, or network requests. The report
-never embeds the `config` block, so no endpoints or keys leak into it.
+base64-embedded thumbnails — no CDN, scripts, or network requests (the only
+`https://` links are the clickable pricing/availability **source citations**).
+The report never embeds the `config` block, so no endpoints or keys leak into it.
 
 Options:
 
@@ -251,6 +267,8 @@ Options:
 - `--thumb-px N` — max thumbnail edge in pixels (default 360; needs Pillow,
   which is used only to downscale embedded thumbnails — the script otherwise
   runs on the standard library alone).
+- `--reference PATH` — pricing/availability reference JSON (defaults to
+  `tools/model-reference.json`).
 
 ## Rate-Limit & Transient-Error Handling
 
