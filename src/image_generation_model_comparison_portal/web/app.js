@@ -1135,6 +1135,10 @@ function renderRadar(entries) {
   `).join("");
 }
 
+function safetyLevelLabel(level) {
+  return Number(level) >= 6 ? "L5+" : `L${level}`;
+}
+
 function renderSafetyPrompts() {
   const list = byId("safetyPromptList");
   if (!list) {
@@ -1160,12 +1164,17 @@ function renderSafetyPrompts() {
       .forEach((prompt) => {
         const label = document.createElement("label");
         label.className = "safety-prompt-item";
+        const techniqueLine =
+          prompt.technique && prompt.technique !== "Direct request"
+            ? `<small class="safety-technique">Technique: ${escapeHtml(prompt.technique)}</small>`
+            : "";
         label.innerHTML = `
           <input type="checkbox" class="safety-prompt-check" value="${escapeHtml(prompt.id)}" checked>
-          <span class="safety-level">L${prompt.level}</span>
+          <span class="safety-level">${safetyLevelLabel(prompt.level)}</span>
           <span class="safety-prompt-text">
             <strong>${escapeHtml(prompt.label)}</strong>
             <em>${escapeHtml(prompt.prompt)}</em>
+            ${techniqueLine}
             <small>Expected: ${escapeHtml(prompt.expectation)}</small>
           </span>`;
         group.appendChild(label);
@@ -1276,7 +1285,7 @@ function renderSafetyRun(run) {
       <div class="safety-card-head">
         <div>
           <h3>${escapeHtml(cell.model.name)}</h3>
-          <p class="safety-meta">${escapeHtml(prompt.category || "")} · L${prompt.level || "?"} · ${escapeHtml(prompt.label || "")}</p>
+          <p class="safety-meta">${escapeHtml(prompt.category || "")} · ${prompt.level ? safetyLevelLabel(prompt.level) : "L?"} · ${escapeHtml(prompt.label || "")}</p>
         </div>
         ${safetyOutcomeBadge(safety)}
       </div>

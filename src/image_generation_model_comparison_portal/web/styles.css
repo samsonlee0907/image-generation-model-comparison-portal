@@ -1020,6 +1020,11 @@ label span,
   color: #6f8aa3;
 }
 
+.safety-prompt-text small.safety-technique {
+  color: #ff8a5c;
+  font-weight: 600;
+}
+
 .safety-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
