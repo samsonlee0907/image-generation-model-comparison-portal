@@ -1307,10 +1307,14 @@ function bindEvents() {
   });
   byId("clearConfigBtn").addEventListener("click", () => loadConfig(state.bootstrap.config));
   byId("watchmakerBtn").addEventListener("click", () => renderPresetForMode("watchmaker", "text"));
-  byId("neonBtn").addEventListener("click", () => renderPresetForMode("neon_ramen", "text"));
+  byId("cartoon3dBtn").addEventListener("click", () => renderPresetForMode("cartoon_3d", "text"));
+  byId("storyboardBtn").addEventListener("click", () => renderPresetForMode("storyboard_comic", "text"));
+  byId("dataChartBtn").addEventListener("click", () => renderPresetForMode("data_chart", "text"));
   byId("generateBenchmarkBtn").addEventListener("click", () => generateBenchmark("text"));
   byId("editWatchmakerBtn").addEventListener("click", () => renderPresetForMode("watchmaker", "edit"));
-  byId("editNeonBtn").addEventListener("click", () => renderPresetForMode("neon_ramen", "edit"));
+  byId("editCartoon3dBtn").addEventListener("click", () => renderPresetForMode("cartoon_3d", "edit"));
+  byId("editStoryboardBtn").addEventListener("click", () => renderPresetForMode("storyboard_comic", "edit"));
+  byId("editDataChartBtn").addEventListener("click", () => renderPresetForMode("data_chart", "edit"));
   byId("editGenerateBenchmarkBtn").addEventListener("click", () => generateBenchmark("edit"));
   byId("runTextBtn").addEventListener("click", () => startRun("text"));
   byId("runEditBtn").addEventListener("click", () => startRun("edit"));

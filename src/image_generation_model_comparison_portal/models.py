@@ -110,30 +110,92 @@ BENCHMARK_PRESETS = {
             "style_adherence": "Professional studio editorial realism rather than stylized illustration.",
         },
     },
-    "neon_ramen": {
-        "title": "Neon Ramen",
+    "cartoon_3d": {
+        "title": "3D Cartoon Chef",
         "prompt": (
-            "A rainy cyberpunk alley ramen stand at night with exactly four red lanterns hanging overhead, "
-            "one chef behind the counter, and two seated customers in yellow raincoats. Steam rises from "
-            "three ceramic ramen bowls in the foreground. A bright blue vertical sign reads '夜麺' and a "
-            "small menu board shows the text 'MISO 12'. Wet pavement reflects orange neon, pink billboards, "
-            "and teal vending machine light. Compose as a cinematic 35mm street photograph with realistic "
-            "rain streaks, consistent reflections, strong depth, and dense surface texture."
+            "A vibrant 3D animated cartoon scene in the polished style of a modern Pixar feature film. A "
+            "chubby orange tabby cat character stands upright on two legs in a sunny kitchen, with big "
+            "expressive green eyes and rounded, exaggerated proportions. It proudly holds up a wooden tray "
+            "carrying exactly three stacked blueberry pancakes topped with one melting pat of butter. The "
+            "cat wears a small red-and-white striped apron printed with the text 'CHEF MILO'. Behind it, "
+            "exactly two cartoon mice in blue overalls peek out from an open cupboard. Render with soft "
+            "global illumination, gentle subsurface scattering on the fur and skin, smooth rounded glossy "
+            "surfaces, shallow depth of field, and a warm pastel palette of cream, butter yellow, and sky "
+            "blue, with playful cinematic 3D animation lighting."
         ),
         "dim_map": {
-            "prompt_adherence": "Respect alley ramen setup, lantern count, customers, menu text, and neon palette.",
-            "object_accuracy": "Lanterns, chef, customers, bowls, sign, and menu board all present.",
-            "object_counting": "Exactly 4 lanterns, 1 chef, 2 customers, and 3 ramen bowls.",
-            "attribute_binding": "Yellow raincoats, red lanterns, blue sign bound to the right objects.",
-            "spatial_relationship": "Chef behind counter, customers seated, bowls foreground, signs overhead.",
-            "action_interaction": "Chef serving, customers seated and eating under the rain.",
-            "text_rendering": "Blue sign and MISO 12 board should be readable and correctly formed.",
-            "anatomy_proportions": "Human figures should hold natural posture and believable proportions.",
-            "physics_realism": "Rain, steam, and wet reflections should align with light sources.",
-            "color_accuracy": "Orange, pink, blue, teal, and yellow should separate cleanly.",
-            "fine_detail": "Steam wisps, noodles, wet pavement, and surface textures need detail.",
-            "composition_aesthetics": "Foreground bowls and alley depth should create cinematic framing.",
-            "style_adherence": "Neo-noir street photography rather than flat illustration.",
+            "prompt_adherence": "Sunny kitchen, upright tabby chef, tray of pancakes, mice, and apron text all honored.",
+            "object_accuracy": "Cat chef, tray, pancakes, butter, apron, two mice, and cupboard all present.",
+            "object_counting": "Exactly 3 pancakes, 1 pat of butter, and 2 mice in overalls.",
+            "attribute_binding": "Orange fur, green eyes, red-and-white apron, blue overalls bound to the right characters.",
+            "spatial_relationship": "Cat in foreground holding tray up, mice peeking from cupboard behind it.",
+            "action_interaction": "Cat actively presenting the tray while the mice peek out and watch.",
+            "text_rendering": "Apron must clearly read CHEF MILO with believable printed lettering.",
+            "anatomy_proportions": "Stylized exaggerated cartoon proportions should stay consistent and appealing.",
+            "physics_realism": "Soft shadows, glossy highlights, and melting butter should read as plausible CG.",
+            "color_accuracy": "Cream, butter yellow, sky blue, and orange fur should stay clean and warm.",
+            "fine_detail": "Fur strands, pancake texture, fabric folds, and subsurface skin need polish.",
+            "composition_aesthetics": "Centered hero framing with playful balance and soft background bokeh.",
+            "style_adherence": "Glossy 3D animated feature-film look rather than flat 2D or photoreal.",
+        },
+    },
+    "storyboard_comic": {
+        "title": "Comic Storyboard",
+        "prompt": (
+            "A 2D comic-book storyboard laid out as exactly four equal panels in a 2x2 grid separated by "
+            "thin black gutters, drawn in a clean flat cel-shaded ink style with bold outlines and halftone "
+            "shading dots. The story follows a young girl detective named Mia and her robot dog Bolt, kept "
+            "visually consistent across every panel. Panel 1 (top-left): Mia kneels and finds a torn map on "
+            "the floor; a yellow caption box reads 'MORNING: A clue!'. Panel 2 (top-right): Mia and Bolt "
+            "walk into a dark forest; her white speech bubble says 'This way, Bolt!'. Panel 3 (bottom-left): "
+            "they discover a glowing treasure chest; Bolt's speech bubble says 'BEEP! Gold!'. Panel 4 "
+            "(bottom-right): Mia triumphantly holds up a golden key; a caption box reads 'THE END?'. Use "
+            "bright primary comic colors and clearly legible hand-lettered English text in every bubble and "
+            "caption, with a coherent left-to-right, top-to-bottom narrative flow."
+        ),
+        "dim_map": {
+            "prompt_adherence": "All four scripted panels, captions, and the Mia-and-Bolt storyline must be followed in order.",
+            "object_accuracy": "Torn map, dark forest, glowing chest, and golden key each appear in their panel.",
+            "object_counting": "Exactly 4 panels in a 2x2 grid, each with its specified caption or bubble.",
+            "attribute_binding": "Yellow caption boxes, white speech bubbles, golden key bound to the correct elements.",
+            "spatial_relationship": "Panels read top-left, top-right, bottom-left, bottom-right with clean gutters.",
+            "action_interaction": "Mia finds, walks, discovers, then lifts the key while Bolt follows along.",
+            "text_rendering": "Every caption and bubble (e.g. 'This way, Bolt!', 'THE END?') must be legible and correct.",
+            "anatomy_proportions": "Mia and Bolt keep consistent, believable cartoon proportions across panels.",
+            "physics_realism": "Lighting (dark forest, glowing chest) should stay consistent within each panel.",
+            "color_accuracy": "Bright primary comic palette should stay clean and consistent between panels.",
+            "fine_detail": "Bold outlines, halftone dots, and lettering should be crisp and readable.",
+            "composition_aesthetics": "Balanced four-panel layout with clear narrative pacing and focal points.",
+            "style_adherence": "Flat cel-shaded 2D comic-book look rather than painterly or 3D rendering.",
+        },
+    },
+    "data_chart": {
+        "title": "Data Chart",
+        "prompt": (
+            "A clean, precise data-visualization infographic on a plain white background showing a single "
+            "vertical bar chart titled 'QUARTERLY REVENUE 2025' in bold black sans-serif. The chart has "
+            "exactly four bars labeled Q1, Q2, Q3, Q4 along the x-axis, and a y-axis labeled 'Revenue (USD "
+            "millions)' with horizontal gridlines at 0, 20, 40, 60, and 80. The bars reach exactly these "
+            "heights with these colors: Q1 = 30 in blue (#2563EB), Q2 = 45 in green (#16A34A), Q3 = 55 in "
+            "amber (#F59E0B), and Q4 = 70 in red (#DC2626). Each bar has its exact numeric value printed in "
+            "black directly above it. A small legend in the top-right corner maps each color to its quarter. "
+            "Use a crisp anti-aliased flat vector style with accurate proportional bar heights, perfectly "
+            "horizontal gridlines, and sharp, legible numeric and axis labels."
+        ),
+        "dim_map": {
+            "prompt_adherence": "Title, axis labels, four quarters, exact values, and color mapping must all match.",
+            "object_accuracy": "Bar chart, axes, gridlines, value labels, and color legend all present.",
+            "object_counting": "Exactly 4 bars and 5 gridlines (0/20/40/60/80) with one value label per bar.",
+            "attribute_binding": "Blue Q1, green Q2, amber Q3, red Q4 bound to the correct quarters.",
+            "spatial_relationship": "Bars sit on the x-axis at correct heights; legend in the top-right.",
+            "action_interaction": "N/A — a static chart; focus on accurate encoding of the data.",
+            "text_rendering": "Title, axis labels, value numbers (30/45/55/70), and legend text must be exact and legible.",
+            "anatomy_proportions": "N/A — bar proportions must instead match their stated numeric values.",
+            "physics_realism": "Flat vector chart; gridlines and bars should be clean and undistorted.",
+            "color_accuracy": "Bar colors should match the specified blue, green, amber, and red hex values.",
+            "fine_detail": "Sharp anti-aliased edges, aligned gridlines, and tidy numeric labels.",
+            "composition_aesthetics": "Balanced infographic layout with clear title, axes, and legend.",
+            "style_adherence": "Clean flat data-viz vector style rather than photoreal or hand-drawn.",
         },
     },
 }
