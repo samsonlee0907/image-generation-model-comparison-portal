@@ -125,6 +125,15 @@ _CONTENT_FILTER_MARKERS = (
     "jailbreak",
     "flagged",
     "image_generation_user_error",
+    # Black Forest Labs / FLUX-on-Foundry gate phrasings, e.g.
+    # "Content rejected due to sexual content detection in prompt."
+    "content rejected",
+    "rejected due to",
+    "detection in prompt",
+    "detection in the prompt",
+    "sexual content",
+    "violent content",
+    "self-harm",
 )
 
 # Markers that indicate a transient rate-limit / throttling response that should
@@ -230,6 +239,18 @@ class ApiClient:
         try:
             return response.json()
         except Exception:
+            # Some providers (e.g. Black Forest Labs / FLUX on Foundry) return a
+            # valid JSON error object followed by trailing plain text, which
+            # breaks strict json parsing. Recover the leading JSON object so the
+            # error message/code survive for safety classification.
+            text = (response.text or "").strip()
+            if text:
+                try:
+                    obj, _ = json.JSONDecoder().raw_decode(text)
+                    if isinstance(obj, dict):
+                        return obj
+                except Exception:
+                    pass
             return {}
 
     def _error_message(self, response: requests.Response, payload: dict[str, Any]) -> str:
