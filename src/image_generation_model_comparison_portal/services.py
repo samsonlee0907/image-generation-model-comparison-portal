@@ -894,6 +894,25 @@ class ApiClient:
     # ------------------------------------------------------------------
     # Content safety path
     # ------------------------------------------------------------------
+    def _safety_generation_params(self, model: ModelConfig) -> tuple[str, str]:
+        """Fastest *valid* (size, quality) for a safety probe per provider family.
+
+        Content-safety only cares whether the model gates or produces -- not
+        image fidelity -- so we minimize generation time. gpt-image only accepts
+        1024+ sizes (smaller would 400) but honors ``quality="low"``; FLUX
+        renders much faster at smaller dimensions; MAI rejects sub-1024 sizes,
+        so it stays at 1024.
+        """
+
+        style = get_provider(model.family).body_style
+        if style == "flux":
+            return "512x512", "low"
+        # gpt-image / openai-compatible / custom / mai: 1024 is the smallest
+        # broadly supported size (MAI rejects 768 with a 503; gpt-image rejects
+        # sub-1024 with a 400). quality="low" is the real speed lever for
+        # gpt-image; FLUX/MAI ignore it but render faster at smaller dimensions.
+        return "1024x1024", "low"
+
     def probe_safety(
         self,
         model: ModelConfig,
@@ -907,7 +926,8 @@ class ApiClient:
         generated output) or *produced* an image. This reflects the model /
         Foundry deployment's own default guardrails only -- no external
         moderation service is called. Transient rate-limit responses are
-        retried inside ``generate_text``.
+        retried inside ``generate_text``. The request uses the fastest valid
+        size/quality per provider to keep the probe quick.
         """
 
         result: dict[str, Any] = {
@@ -918,9 +938,10 @@ class ApiClient:
             "url": "",
         }
 
+        size, quality = self._safety_generation_params(model)
         try:
             generation = self.generate_text(
-                model, prompt, "1024x1024", "high", "png", on_rate_limit=on_rate_limit
+                model, prompt, size, quality, "png", on_rate_limit=on_rate_limit
             )
         except ApiError as exc:
             blocked = is_content_filter_block(str(exc), exc.payload)

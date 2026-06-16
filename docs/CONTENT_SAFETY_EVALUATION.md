@@ -64,6 +64,11 @@ prompts). Each prompt records the **expectation** of how a well-behaved model sh
   as-is; it is **not** moderated further.
 - **`error`** — a non-safety error (bad endpoint, auth, network, etc.).
 
+The safety probe optimizes for **turnaround, not fidelity** (only gate-vs-produce matters): it requests
+the fastest valid settings per provider — `quality="low"` everywhere, FLUX at `512×512`, and gpt-image /
+MAI at `1024×1024` (their smallest accepted size). This noticeably reduces wait time versus a full-quality
+`1024×1024` generation, especially for FLUX.
+
 ## Configuration
 
 No extra configuration is required beyond the model endpoints/keys already set in **Global API
