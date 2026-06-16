@@ -18,6 +18,8 @@ such as `MAI-Image-2.5` work without any code change.
 - Draws bounding boxes from CV output and lets users toggle them on or off.
 - Provides retry actions for failed image generations.
 - Exports generated images and evaluation results to PPTX.
+- Exports generated images plus a `results.json` manifest to a local folder for notebook analysis.
+- Retries rate-limited (HTTP 429) generation, edit, and safety requests automatically (fixed 60s backoff).
 
 ## Documentation
 
@@ -131,3 +133,42 @@ After a run, the portal shows:
 Use `Export PPTX Report` to generate a presentation containing the run prompt, generated images, and evaluation results.
 
 ![PPTX Report Export](img/pptx-report-export.png)
+
+## Exporting Images + JSON
+
+Use `Export Images + JSON` to write the run's generated images to a local
+folder together with a single machine-readable manifest for downstream
+analysis (e.g. a Python notebook that aggregates multiple iterations).
+
+Each export is written to `portal-exports/<timestamp>-<runId>/`:
+
+```
+portal-exports/20240101-120000-abc123/
+  results.json          # run metadata + one record per model
+  images/<model>.png    # one file per produced image
+```
+
+`results.json` schema (`schemaVersion: 1`):
+
+- `runId`, `exportedAt`, `mode`, `modeLabel` — run identity and category
+  (`Text-to-Image` / `Image Edit`).
+- `prompt`, `effectivePrompt`, `promptGuidance` — the prompt actually sent.
+- `config` — run configuration with any API keys redacted.
+- `results[]` — per model: `model` (keys redacted), `status`, `error`,
+  `imagePath` (relative path into `images/`, or `null` when no image was
+  produced), `imageMimeType`, `metrics`, `generation` (request/response/url),
+  `cv`, and `evaluation` (per-dimension scores). Joining `imagePath` to the
+  scores in the same record lets a notebook line up each image with its
+  metrics across runs.
+
+The `portal-exports/` folder is git-ignored.
+
+## Rate-Limit Handling
+
+Azure image rate limits are enforced per minute. Generation, image-edit, and
+content-safety requests automatically retry transient rate-limit errors
+(including HTTP 429) by waiting a fixed 60 seconds between attempts, up to 5
+retries, before surfacing the error. Safety probes additionally run one request
+at a time per model (four model tracks in parallel) to avoid flooding a shared
+endpoint. While waiting, the affected result card shows a
+`Rate limited — waiting 60s (n/5)` status.

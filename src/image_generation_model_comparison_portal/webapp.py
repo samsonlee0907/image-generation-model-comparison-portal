@@ -8,11 +8,11 @@ import shutil
 import subprocess
 import tempfile
 import threading
-import time
 import uuid
 import webbrowser
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -43,11 +43,26 @@ def _to_plain(value: Any) -> Any:
     return value
 
 
-class RunManager:
-    # Maximum number of times a single safety prompt is retried after hitting a
-    # rate-limit response before it is reported as an error.
-    SAFETY_MAX_RETRIES = 6
+def _safe_filename(name: str) -> str:
+    cleaned = "".join(c if (c.isalnum() or c in "-_") else "-" for c in (name or "").strip())
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    return cleaned.strip("-").lower()
 
+
+def _redact_config(config: dict[str, Any]) -> dict[str, Any]:
+    redacted: dict[str, Any] = {}
+    for key, value in config.items():
+        if isinstance(value, str) and "key" in key.lower() and value:
+            redacted[key] = "***redacted***"
+        elif isinstance(value, dict):
+            redacted[key] = _redact_config(value)
+        else:
+            redacted[key] = value
+    return redacted
+
+
+class RunManager:
     def __init__(self) -> None:
         self.executor = ThreadPoolExecutor(max_workers=12)
         self.lock = threading.RLock()
@@ -242,6 +257,95 @@ class RunManager:
             raise FileNotFoundError(run_id)
         return path
 
+    def export_results(self, run_id: str) -> dict[str, Any]:
+        """Write generated images to a local folder plus a single results.json.
+
+        Layout (under ``portal-exports/`` at the repo root)::
+
+            portal-exports/<timestamp>-<runId>/
+                results.json          # run metadata + per-result records
+                images/<model>.png    # one file per produced image
+
+        The JSON keeps each result's text fields (prompt, metrics, evaluation
+        scores, status) and a relative ``imagePath`` so a downstream notebook
+        can join images to their scores across multiple iterations.
+        """
+
+        with self.lock:
+            if run_id not in self.runs:
+                raise KeyError(run_id)
+            run = _to_plain(self.runs[run_id])
+
+        if not any((run["results"].get(name) or {}).get("generation") for name in run["order"]):
+            raise RuntimeError("No generated images are available to export.")
+
+        repo_root = Path(__file__).resolve().parents[2]
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        export_dir = repo_root / "portal-exports" / f"{stamp}-{run_id}"
+        images_dir = export_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        used_names: set[str] = set()
+        records: list[dict[str, Any]] = []
+        image_count = 0
+        for name in run["order"]:
+            result = dict(run["results"].get(name) or {})
+            generation = result.get("generation") or {}
+            image_path_rel: str | None = None
+            data_url = generation.get("imageDataUrl") or ""
+            if data_url and "," in data_url:
+                header, raw_b64 = data_url.split(",", 1)
+                suffix = ".jpg" if ("jpeg" in header or "jpg" in header) else ".png"
+                file_stem = _safe_filename(name) or f"model-{len(records) + 1}"
+                candidate = file_stem
+                counter = 2
+                while candidate in used_names:
+                    candidate = f"{file_stem}-{counter}"
+                    counter += 1
+                used_names.add(candidate)
+                file_name = f"{candidate}{suffix}"
+                (images_dir / file_name).write_bytes(base64.b64decode(raw_b64))
+                image_path_rel = f"images/{file_name}"
+                image_count += 1
+
+            # Trim the inlined base64 from the JSON; the file on disk replaces it.
+            trimmed_generation = {k: v for k, v in generation.items() if k != "imageDataUrl"}
+            records.append(
+                {
+                    "model": _redact_config(result.get("model") or {}),
+                    "status": result.get("status"),
+                    "error": result.get("error"),
+                    "imagePath": image_path_rel,
+                    "imageMimeType": generation.get("mimeType"),
+                    "metrics": result.get("metrics"),
+                    "generation": trimmed_generation or None,
+                    "cv": result.get("cv"),
+                    "evaluation": result.get("evaluation"),
+                }
+            )
+
+        manifest = {
+            "schemaVersion": 1,
+            "exportedAt": datetime.now().isoformat(timespec="seconds"),
+            "runId": run_id,
+            "mode": run.get("mode"),
+            "modeLabel": {"text": "Text-to-Image", "edit": "Image Edit"}.get(run.get("mode"), run.get("mode")),
+            "prompt": run.get("prompt"),
+            "effectivePrompt": run.get("effectivePrompt"),
+            "promptGuidance": run.get("promptGuidance"),
+            "config": _redact_config(run.get("config") or {}),
+            "results": records,
+        }
+        json_path = export_dir / "results.json"
+        json_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return {
+            "ok": True,
+            "folder": str(export_dir),
+            "jsonPath": str(json_path),
+            "imageCount": image_count,
+        }
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         with self.lock:
             if run_id not in self.runs:
@@ -319,33 +423,21 @@ class RunManager:
                 if run_id not in self.runs:
                     return
             key = f"{model.name}::{prompt.id}"
+
+            def on_rate_limit(attempt: int, total: int, wait: int, _key: str = key) -> None:
+                self._set_safety_status(
+                    run_id,
+                    _key,
+                    f"Rate limited \u2014 waiting {wait}s ({attempt}/{total})",
+                )
+
             payload: Any = None
             error: str | None = None
-            attempts = 0
-            while True:
-                try:
-                    payload = client.probe_safety(model, prompt.prompt)
-                    error = None
-                except Exception as exc:  # pragma: no cover - defensive
-                    payload = None
-                    error = str(exc)
-                    break
-                if isinstance(payload, dict) and payload.get("outcome") == "rate_limited":
-                    if attempts >= self.SAFETY_MAX_RETRIES:
-                        # Give up retrying; surface the rate-limit message as an error.
-                        payload["outcome"] = "error"
-                        break
-                    attempts += 1
-                    wait = int(payload.get("retryAfter") or 60)
-                    wait = max(5, min(wait, 120))
-                    self._set_safety_status(
-                        run_id,
-                        key,
-                        f"Rate limited \u2014 retrying in {wait}s ({attempts}/{self.SAFETY_MAX_RETRIES})",
-                    )
-                    time.sleep(wait)
-                    continue
-                break
+            try:
+                payload = client.probe_safety(model, prompt.prompt, on_rate_limit=on_rate_limit)
+            except Exception as exc:  # pragma: no cover - defensive
+                payload = None
+                error = str(exc)
             self._handle_safety(run_id, key, payload, error)
 
     def _set_safety_status(self, run_id: str, cell_key: str, status: str) -> None:
@@ -410,8 +502,21 @@ class RunManager:
             "evaluation": None,
         }
 
+    def _make_generation_rate_limit_cb(self, run_id: str, model_name: str):
+        def on_rate_limit(attempt: int, total: int, wait: int) -> None:
+            with self.lock:
+                run = self.runs.get(run_id)
+                if run is None:
+                    return
+                result = run["results"].get(model_name)
+                if result is not None:
+                    result["status"] = f"Rate limited \u2014 waiting {wait}s ({attempt}/{total})"
+
+        return on_rate_limit
+
     def _submit_generation(self, run_id: str, client: ApiClient, model: ModelConfig) -> None:
         run = self.runs[run_id]
+        on_rate_limit = self._make_generation_rate_limit_cb(run_id, model.name)
         if run["mode"] == "text":
             self._submit(
                 run_id,
@@ -423,6 +528,7 @@ class RunManager:
                 run["textSize"],
                 run["textQuality"],
                 run["outputFormat"],
+                on_rate_limit,
             )
             return
         if not get_provider(model.family).supports_edit:
@@ -436,6 +542,7 @@ class RunManager:
                 run["editSize"],
                 "high",
                 run["outputFormat"],
+                on_rate_limit,
             )
             return
         self._submit(
@@ -449,6 +556,7 @@ class RunManager:
             run["maskPath"],
             run["editSize"],
             run["outputFormat"],
+            on_rate_limit,
         )
 
     def _report_runtime(self) -> tuple[str, Path]:
@@ -752,6 +860,19 @@ class AppHandler(BaseHTTPRequestHandler):
             run_id = parts[2]
             try:
                 payload = RUNS.retry_generation(run_id, data["config"], data["modelName"])
+            except KeyError:
+                self._json_response(HTTPStatus.NOT_FOUND, {"error": "Run not found."})
+                return
+            except Exception as exc:
+                self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            self._json_response(HTTPStatus.OK, payload)
+            return
+        if parsed.path.endswith("/export") and parsed.path.startswith("/api/runs/"):
+            parts = parsed.path.strip("/").split("/")
+            run_id = parts[2]
+            try:
+                payload = RUNS.export_results(run_id)
             except KeyError:
                 self._json_response(HTTPStatus.NOT_FOUND, {"error": "Run not found."})
                 return

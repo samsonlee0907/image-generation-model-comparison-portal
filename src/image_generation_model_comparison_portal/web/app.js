@@ -561,6 +561,7 @@ async function startRun(mode) {
   showRequestOverlay("Sending requests...", "Preparing the prompt, images, and backend run state.");
   setRunButtonsDisabled(true);
   byId("exportReportBtn").disabled = true;
+  byId("exportImagesBtn").disabled = true;
   try {
     const payload = {
       config: collectConfig(),
@@ -622,10 +623,27 @@ async function refreshRun() {
   }
 }
 
+function modeLabel(mode) {
+  return (
+    {
+      text: "Text-to-Image",
+      edit: "Image Edit",
+    }[mode] || "Results"
+  );
+}
+
 function renderRun(run) {
   setStatus(`${run.progress.label} ${run.progress.done}/${run.progress.total}`);
   setProgress(run.progress.done, run.progress.total);
+  const heading = byId("resultsHeading");
+  if (heading) {
+    heading.textContent = `Results \u2014 ${modeLabel(run.mode)}`;
+  }
   byId("exportReportBtn").disabled = !canExportReport(run) || run.status === "running";
+  const exportImagesBtn = byId("exportImagesBtn");
+  if (exportImagesBtn) {
+    exportImagesBtn.disabled = !hasGeneratedImages(run) || run.status === "running";
+  }
   const grid = byId("resultsGrid");
   if (!grid.children.length) {
     run.order.forEach((name) => grid.appendChild(buildResultCard(run.results[name])));
@@ -633,6 +651,13 @@ function renderRun(run) {
   run.order.forEach((name) => updateResultCard(grid.querySelector(`[data-model="${cssEscape(name)}"]`), run.results[name]));
   renderComparison(run);
   renderLog(run.errorLog || []);
+}
+
+function hasGeneratedImages(run) {
+  if (!run || !run.results) {
+    return false;
+  }
+  return (run.order || []).some((name) => run.results[name]?.generation?.imageDataUrl);
 }
 
 function buildResultCard(result) {
@@ -927,6 +952,31 @@ async function retryGeneration(modelName) {
     alert(error.message);
   } finally {
     hideRequestOverlay();
+  }
+}
+
+async function exportImages() {
+  if (!state.runId) {
+    return;
+  }
+  showRequestOverlay("Exporting images + JSON...", "Writing generated images to a local folder and a results.json manifest.");
+  byId("exportImagesBtn").disabled = true;
+  try {
+    const payload = await api(`/api/runs/${state.runId}/export`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const message = `Exported ${payload.imageCount} image(s) + results.json to:\n${payload.folder}`;
+    setStatus(`Exported ${payload.imageCount} image(s) to ${payload.folder}`);
+    alert(message);
+  } catch (error) {
+    setStatus(error.message);
+    alert(error.message);
+  } finally {
+    hideRequestOverlay();
+    if (state.run) {
+      byId("exportImagesBtn").disabled = !hasGeneratedImages(state.run) || state.run.status === "running";
+    }
   }
 }
 
@@ -1263,6 +1313,7 @@ function bindEvents() {
     document.querySelectorAll(".safety-prompt-check").forEach((input) => { input.checked = false; });
   });
   byId("exportReportBtn").addEventListener("click", () => exportReport());
+  byId("exportImagesBtn").addEventListener("click", () => exportImages());
   byId("reEvalBtn").addEventListener("click", () => triggerEvaluation(null));
   byId("copyLogBtn").addEventListener("click", () => navigator.clipboard.writeText(byId("logView").textContent));
   byId("clearLogBtn").addEventListener("click", () => {

@@ -4,10 +4,9 @@ import base64
 import copy
 import json
 import math
-import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote
 
 import requests
@@ -136,7 +135,10 @@ _RATE_LIMIT_MARKERS = (
     "too many requests",
 )
 
-_RETRY_AFTER_RE = re.compile(r"retry after (\d+)\s*second", re.IGNORECASE)
+# Azure image rate limits are enforced per-minute, so a fixed 60s backoff is the
+# most reliable retry interval.
+RATE_LIMIT_RETRY_SECONDS = 60
+RATE_LIMIT_MAX_RETRIES = 5
 
 
 def is_content_filter_block(message: str, payload: dict[str, Any] | None = None) -> bool:
@@ -153,18 +155,6 @@ def is_rate_limit_error(message: str, status: int = 0, payload: dict[str, Any] |
     if payload:
         blob += " " + json.dumps(payload).lower()
     return any(marker in blob for marker in _RATE_LIMIT_MARKERS)
-
-
-def parse_retry_after(message: str, default: int = 60) -> int:
-    """Best-effort parse of a "retry after N seconds" hint from an error message."""
-
-    match = _RETRY_AFTER_RE.search(message or "")
-    if match:
-        try:
-            return max(1, int(match.group(1)))
-        except ValueError:
-            pass
-    return default
 
 
 def parse_size(value: str | None) -> tuple[int, int]:
@@ -442,7 +432,62 @@ class ApiClient:
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
         return json.loads(content)
 
+    # ------------------------------------------------------------------
+    # Rate-limit retry wrappers (public entry points)
+    # ------------------------------------------------------------------
+    def _call_with_rate_limit_retry(
+        self,
+        func: Callable[..., GenerationResult],
+        *args: Any,
+        on_rate_limit: Callable[[int, int, int], None] | None = None,
+    ) -> GenerationResult:
+        """Call ``func`` and retry on transient rate-limit errors.
+
+        Azure image rate limits reset per minute, so we wait a fixed 60s
+        between attempts (up to ``RATE_LIMIT_MAX_RETRIES`` times) before giving
+        up and re-raising the original error.
+        """
+
+        attempt = 0
+        while True:
+            try:
+                return func(*args)
+            except ApiError as exc:
+                rate_limited = is_rate_limit_error(str(exc), exc.status, exc.payload)
+                if not rate_limited or attempt >= RATE_LIMIT_MAX_RETRIES:
+                    raise
+            except Exception as exc:  # noqa: BLE001 - classify, then re-raise
+                if not is_rate_limit_error(str(exc)) or attempt >= RATE_LIMIT_MAX_RETRIES:
+                    raise
+
+            attempt += 1
+            if on_rate_limit is not None:
+                try:
+                    on_rate_limit(attempt, RATE_LIMIT_MAX_RETRIES, RATE_LIMIT_RETRY_SECONDS)
+                except Exception:  # noqa: BLE001 - status callbacks must never break retries
+                    pass
+            time.sleep(RATE_LIMIT_RETRY_SECONDS)
+
     def generate_text(
+        self,
+        model: ModelConfig,
+        prompt: str,
+        size: str,
+        quality: str,
+        output_format: str,
+        on_rate_limit: Callable[[int, int, int], None] | None = None,
+    ) -> GenerationResult:
+        return self._call_with_rate_limit_retry(
+            self._generate_text_once,
+            model,
+            prompt,
+            size,
+            quality,
+            output_format,
+            on_rate_limit=on_rate_limit,
+        )
+
+    def _generate_text_once(
         self,
         model: ModelConfig,
         prompt: str,
@@ -567,6 +612,27 @@ class ApiClient:
         )
 
     def generate_edit(
+        self,
+        model: ModelConfig,
+        prompt: str,
+        source_paths: list[str],
+        mask_path: str | None,
+        size: str,
+        output_format: str,
+        on_rate_limit: Callable[[int, int, int], None] | None = None,
+    ) -> GenerationResult:
+        return self._call_with_rate_limit_retry(
+            self._generate_edit_once,
+            model,
+            prompt,
+            source_paths,
+            mask_path,
+            size,
+            output_format,
+            on_rate_limit=on_rate_limit,
+        )
+
+    def _generate_edit_once(
         self,
         model: ModelConfig,
         prompt: str,
@@ -807,14 +873,20 @@ class ApiClient:
     # ------------------------------------------------------------------
     # Content safety path
     # ------------------------------------------------------------------
-    def probe_safety(self, model: ModelConfig, prompt: str) -> dict[str, Any]:
+    def probe_safety(
+        self,
+        model: ModelConfig,
+        prompt: str,
+        on_rate_limit: Callable[[int, int, int], None] | None = None,
+    ) -> dict[str, Any]:
         """Observe one model's baseline content-safety behavior for a prompt.
 
         Sends the prompt to the image model and records whether the model
         *gated* the request (a content-filter block on the input prompt or the
         generated output) or *produced* an image. This reflects the model /
         Foundry deployment's own default guardrails only -- no external
-        moderation service is called.
+        moderation service is called. Transient rate-limit responses are
+        retried inside ``generate_text``.
         """
 
         result: dict[str, Any] = {
@@ -823,19 +895,13 @@ class ApiClient:
             "blockReason": "",
             "image": None,
             "url": "",
-            "retryAfter": 0,
         }
 
         try:
-            generation = self.generate_text(model, prompt, "1024x1024", "high", "png")
+            generation = self.generate_text(
+                model, prompt, "1024x1024", "high", "png", on_rate_limit=on_rate_limit
+            )
         except ApiError as exc:
-            if is_rate_limit_error(str(exc), exc.status, exc.payload):
-                result.update(
-                    outcome="rate_limited",
-                    blockReason=str(exc),
-                    retryAfter=parse_retry_after(str(exc)),
-                )
-                return result
             blocked = is_content_filter_block(str(exc), exc.payload)
             result.update(
                 outcome="blocked" if blocked else "error",
@@ -844,13 +910,6 @@ class ApiClient:
             )
             return result
         except Exception as exc:
-            if is_rate_limit_error(str(exc)):
-                result.update(
-                    outcome="rate_limited",
-                    blockReason=str(exc),
-                    retryAfter=parse_retry_after(str(exc)),
-                )
-                return result
             blocked = is_content_filter_block(str(exc))
             result.update(
                 outcome="blocked" if blocked else "error",
