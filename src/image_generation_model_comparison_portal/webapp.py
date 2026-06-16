@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 
 from image_generation_model_comparison_portal.config import load_config, save_config
 from image_generation_model_comparison_portal.models import AppConfig, BENCHMARK_PRESETS, DIM_LABELS, DIM_SHORT, ModelConfig, sample_models
-from image_generation_model_comparison_portal.providers import get_provider, provider_options
+from image_generation_model_comparison_portal.providers import provider_options
 from image_generation_model_comparison_portal.safety import safety_prompts
 from image_generation_model_comparison_portal.services import ApiClient, image_data_url
 
@@ -724,7 +724,7 @@ class RunManager:
                 on_rate_limit,
             )
             return
-        if not get_provider(model.family).supports_edit:
+        if not model.supports_edit():
             self._submit(
                 run_id,
                 "generate",
@@ -838,7 +838,7 @@ class RunManager:
                     "request": payload.request_payload,
                     "response": payload.response_payload,
                     "url": payload.url,
-                    "editFallbackUsed": run["mode"] == "edit" and not get_provider(ModelConfig.from_dict(result["model"]).family).supports_edit,
+                    "editFallbackUsed": run["mode"] == "edit" and not ModelConfig.from_dict(result["model"]).supports_edit(),
                 }
                 run["errorLog"].append({"level": "INFO", "model": model_name, "message": f"Generation OK in {payload.elapsed_s:.2f}s"})
             run["progress"]["done"] += 1

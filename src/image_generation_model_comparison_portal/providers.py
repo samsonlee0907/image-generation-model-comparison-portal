@@ -50,6 +50,11 @@ class ProviderSpec:
     identifier_label: str
     identifier_placeholder: str
     notes: str = ""
+    # Optional substrings that a deployment/body-model must contain for image
+    # *edit* to be available, when ``supports_edit`` is True but only some
+    # versions of the family support editing (e.g. MAI image edit requires
+    # MAI-Image-2.5 or newer). Empty means "all versions of this family edit".
+    edit_version_markers: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -58,6 +63,7 @@ class ProviderSpec:
             "description": self.description,
             "auth": self.auth,
             "supports_edit": self.supports_edit,
+            "edit_version_markers": list(self.edit_version_markers),
             "identifier_label": self.identifier_label,
             "identifier_placeholder": self.identifier_placeholder,
             "notes": self.notes,
@@ -85,7 +91,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
         notes=(
             "Routed by Azure deployment name in the URL path. JSON body with "
             "prompt/model/n/quality/size; gpt-image-2+ also accepts output_format. "
-            "Edits use multipart/form-data with image[] and optional mask."
+            "Edits use multipart/form-data with image[] and an optional mask. "
+            "gpt-image is the only family here that supports true mask-based "
+            "inpainting — the mask's transparent/white pixels mark the region to "
+            "regenerate while the rest of the image is preserved."
         ),
     ),
     "flux": ProviderSpec(
@@ -119,7 +128,12 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "the catalog name. The request body 'model' defaults to the same "
             "deployment name; if your gateway requires the catalog name (e.g. "
             "'FLUX.2-pro'), set it under Advanced -> 'Body model id'. "
-            "Edits embed base64 source images as input_image / input_image_N."
+            "Edits are instruction/reference-based: source images are embedded as "
+            "base64 input_image / input_image_N (FLUX.2 accepts up to 8-10 "
+            "references) and guided purely by the prompt. FLUX on Foundry has no "
+            "separate mask channel (masked inpainting lives in the FLUX.1 Fill "
+            "model, which is not in the Foundry catalog), so any uploaded mask is "
+            "ignored for FLUX."
         ),
     ),
     "mai": ProviderSpec(
@@ -127,22 +141,28 @@ PROVIDERS: dict[str, ProviderSpec] = {
         label="MAI-Image (Microsoft)",
         description=(
             "Microsoft MAI image models on Foundry (MAI-Image-2, MAI-Image-2e, "
-            "MAI-Image-2.5, and future versions)."
+            "MAI-Image-2.5, MAI-Image-2.5-Flash, and future versions)."
         ),
         auth="api-key",
         generate_template="{endpoint}/mai/v1/images/generations",
-        edit_template=None,
+        edit_template="{endpoint}/mai/v1/images/edits",
         body_style="mai",
-        supports_edit=False,
+        supports_edit=True,
+        edit_version_markers=("2.5",),
         api_version_field="",
         default_api_version="",
         response_image_paths=("data.[].b64_json",),
         identifier_label="Deployment Name",
         identifier_placeholder="mai-image-2.5",
         notes=(
-            "Fixed provider route /mai/v1/images/generations (no api-version, no "
-            "deployment path segment). JSON body with model/prompt/width/height; "
-            "dimensions are clamped to >=768 px and <= ~1 MP. Edit not supported."
+            "Generation uses the fixed route /mai/v1/images/generations (no "
+            "api-version, no deployment path segment); JSON body with "
+            "model/prompt/width/height, dimensions clamped to >=768 px and "
+            "<= ~1 MP. Image edit is instruction-based via "
+            "/mai/v1/images/edits (multipart image + prompt) and is only "
+            "available on MAI-Image-2.5 / 2.5-Flash; MAI-Image-2 / 2e are "
+            "generation-only and fall back to text-to-image. MAI has no mask "
+            "channel, so any uploaded mask is ignored."
         ),
     ),
     "custom": ProviderSpec(
@@ -210,6 +230,23 @@ def provider_options() -> list[dict[str, Any]]:
     """Serializable provider metadata for the web UI bootstrap payload."""
 
     return [spec.to_dict() for spec in PROVIDERS.values()]
+
+
+def spec_supports_edit(spec: ProviderSpec, *identifiers: str) -> bool:
+    """Whether image edit is available for a deployment of ``spec``.
+
+    Most families either support edit for every version or not at all. Some
+    (e.g. MAI image) only support edit from a given version onward; in that case
+    ``spec.edit_version_markers`` lists substrings and at least one must appear
+    in the deployment/body-model ``identifiers`` for edit to be available.
+    """
+
+    if not spec.supports_edit or not spec.edit_template:
+        return False
+    if not spec.edit_version_markers:
+        return True
+    blob = " ".join(value.lower() for value in identifiers if value)
+    return any(marker.lower() in blob for marker in spec.edit_version_markers)
 
 
 def extract_image(payload: dict[str, Any], spec: ProviderSpec) -> str | None:

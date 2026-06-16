@@ -101,9 +101,18 @@ Set these values before starting a comparison:
 
 1. Open the `Image Edit` tab.
 2. Upload a source image.
-3. Paint the edit mask directly in the built-in mask panel.
-4. Enter the edit prompt or generate a benchmark prompt.
+3. Paint the edit mask directly in the built-in mask panel. **The mask only applies to `gpt-image`,
+   which supports true mask-based inpainting.** FLUX and MAI edits are instruction/reference-based and
+   ignore the mask, so describe the change fully in the prompt.
+4. Enter the edit prompt or load one of the edit scenario presets — **Style Change** (realistic →
+   painting, retain all details), **Add Tagline Text** (overlay a Microsoft Foundry tagline, retain
+   all details), **Object + Background** (keep a target object, replace only the background), or
+   **Business Attire** (restyle people's clothing to business formal, keep identities and scene).
 5. Click `Generate Edit and Compare`.
+
+Edit support by family: `gpt-image` (mask inpainting), `flux` (instruction/reference, no mask), and
+`mai` (instruction edit on `MAI-Image-2.5` / `2.5-Flash` and newer; `MAI-Image-2` / `2e` fall back to
+text-to-image). See [`docs/MODEL_ROUTING.md`](docs/MODEL_ROUTING.md) for the per-family edit routes.
 
 ![Image Edit Workflow](img/image-edit-workflow.png)
 

@@ -42,9 +42,11 @@ schema**, the **auth header**, and **whether image edit is supported**.
 - **Auth:** `api-key: <key>` header.
 - **Body:** JSON `{ model, prompt, n, quality, size }`; `gpt-image-2`+ also accepts `output_format`.
   Optional keys are dropped automatically on a `400` so older deployments still succeed.
-- **Edit:** `multipart/form-data` with `image[]` and optional `mask`.
+- **Edit:** `multipart/form-data` with `image[]` and an optional separate `mask`. **gpt-image is the
+  only family here that supports true mask-based inpainting** — transparent/white mask pixels mark the
+  region to regenerate while the rest of the image is preserved.
 - **Response image:** `data[].b64_json`.
-- **Supports edit:** yes.
+- **Supports edit:** yes (with mask).
 
 ### `flux` — Black Forest Labs
 
@@ -55,9 +57,12 @@ schema**, the **auth header**, and **whether image edit is supported**.
 - **Body:** JSON `{ model, prompt, width, height, output_format, num_images }`. The body `model`
   defaults to the deployment name; if your gateway requires the **catalog** name (e.g. `FLUX.2-pro`),
   set it under **Advanced → Body model id**. Optional keys are progressively dropped on a `400`.
-- **Edit:** same route; base64 source images embedded as `input_image` / `input_image_N`.
+- **Edit:** same route; base64 source images embedded as `input_image` / `input_image_N` (FLUX.2
+  accepts up to ~8–10 references). Editing is **instruction/reference-based with no mask channel** —
+  any uploaded mask is ignored, so the desired change must be fully described in the prompt. (Masked
+  inpainting lives in the separate FLUX.1 Fill model, which is not in the Foundry catalog.)
 - **Response image:** `data[].b64_json|base64|image` or `result.b64_json|base64|image`.
-- **Supports edit:** yes.
+- **Supports edit:** yes (instruction/reference only, no mask).
 
 > Example matching a working curl: deployment (path) = `flux-2-pro`, Advanced → Body model id =
 > `FLUX.2-pro`.
@@ -66,15 +71,21 @@ schema**, the **auth header**, and **whether image edit is supported**.
 
 - **Generate URL:** `{endpoint}/mai/v1/images/generations` (fixed route — **no** `api-version`, **no**
   deployment path segment).
+- **Edit URL:** `{endpoint}/mai/v1/images/edits` (fixed route).
 - **Routed by:** the fixed provider route; the model is named only in the body.
 - **Auth:** `api-key: <key>` header.
-- **Body:** JSON `{ model, prompt, width, height }`. Dimensions are clamped to `>= 768 px` and
-  `<= ~1 MP`.
+- **Body (generate):** JSON `{ model, prompt, width, height }`. Dimensions are clamped to `>= 768 px`
+  and `<= ~1 MP`.
+- **Edit:** `multipart/form-data` with `model` + `prompt` + a single `image` field. Editing is
+  **instruction-based with no mask channel and no size parameter** — any uploaded mask is ignored.
 - **Response image:** `data[].b64_json`.
-- **Supports edit:** **no** — edit requests transparently fall back to text-to-image.
+- **Supports edit:** **version-gated** — `MAI-Image-2.5` and `MAI-Image-2.5-Flash` (and newer, matched
+  by the `2.5` marker in `edit_version_markers`) support instruction edits; `MAI-Image-2` / `2e` are
+  text-to-image only and transparently fall back to text-to-image for edit requests.
 
 > Newer MAI versions (e.g. `MAI-Image-2.5`) are onboarded by selecting the **MAI-Image** family and
-> typing the new deployment name. No code change is required.
+> typing the new deployment name. Image edit is enabled automatically when the deployment/body model id
+> contains `2.5`. No code change is required.
 
 ### `custom` — OpenAI-compatible / anything else
 

@@ -146,10 +146,10 @@
           <input id="editBenchIdea" type="text" placeholder='e.g. "turn this portrait into a cinematic magazine cover"'>
           <div class="row-actions">
             <button id="editGenerateBenchmarkBtn">Generate Benchmark</button>
-            <button id="editWatchmakerBtn" class="secondary">Watchmaker</button>
-            <button id="editCartoon3dBtn" class="secondary">3D Cartoon</button>
-            <button id="editStoryboardBtn" class="secondary">Comic Storyboard</button>
-            <button id="editDataChartBtn" class="secondary">Report Page</button>
+            <button id="editStyleChangeBtn" class="secondary">Style Change</button>
+            <button id="editAddTextBtn" class="secondary">Add Tagline Text</button>
+            <button id="editObjectBgBtn" class="secondary">Object + Background</button>
+            <button id="editBusinessAttireBtn" class="secondary">Business Attire</button>
           </div>
           <div id="editBenchStatus" class="status-text"></div>
           <div id="editBenchAnnotation" class="annotation-block"></div>
@@ -188,6 +188,7 @@
               <h3>Mask Painter</h3>
             </div>
             <p class="mask-help">Paint the region to edit. The app will generate the PNG mask automatically.</p>
+            <p class="mask-help muted"><strong>Mask only applies to gpt-image.</strong> FLUX and MAI edits are instruction/reference-based and ignore the mask &mdash; describe the change fully in the prompt.</p>
             <label class="field-stack">
               <span>Brush Size</span>
               <input id="editBrushSize" type="range" min="8" max="160" step="2" value="40">

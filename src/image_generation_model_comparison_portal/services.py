@@ -748,8 +748,8 @@ class ApiClient:
     ) -> GenerationResult:
         started = time.perf_counter()
         spec = get_provider(model.family)
-        if not spec.supports_edit:
-            raise RuntimeError(f"{spec.label} does not support image edit in this app.")
+        if not model.supports_edit():
+            raise RuntimeError(f"{spec.label} ({model.body_model()}) does not support image edit in this app.")
         url = self._edit_url(model)
         timeout = self._timeout_for("edit", model.family)
         body_model = model.body_model()
@@ -782,6 +782,39 @@ class ApiClient:
                 url=url,
                 request_payload=used_body,
                 response_payload=data,
+            )
+
+        # MAI image edit: instruction-based, multipart with a single image and
+        # prompt. No mask channel and no size parameter (MAI-Image-2.5 / 2.5-Flash).
+        if spec.body_style == "mai":
+            if not source_paths:
+                raise RuntimeError("Source image required.")
+            data = {"model": body_model, "prompt": prompt}
+            files = [("image", ("source.png", Path(source_paths[0]).read_bytes(), "image/png"))]
+            response = requests.post(
+                url,
+                headers=self._auth_headers(spec.auth, False),
+                data=data,
+                files=files,
+                timeout=timeout,
+            )
+            payload = self._read_json(response)
+            self._raise_for_payload(response, payload)
+            image_b64 = extract_image(payload, spec)
+            if not image_b64:
+                raise RuntimeError("No image in response.")
+            request_payload = copy.deepcopy(data)
+            request_payload["image_files"] = [Path(path).name for path in source_paths]
+            return GenerationResult(
+                model_name=model.name,
+                model_kind=model.family,
+                image_b64=image_b64,
+                mime_type="image/png",
+                elapsed_s=round(time.perf_counter() - started, 2),
+                usage=self._extract_usage(payload),
+                url=url,
+                request_payload=request_payload,
+                response_payload=payload,
             )
 
         # gpt-image edit: multipart/form-data
