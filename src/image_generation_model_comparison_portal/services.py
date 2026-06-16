@@ -4,6 +4,7 @@ import base64
 import copy
 import json
 import math
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -111,9 +112,13 @@ _CONTENT_FILTER_MARKERS = (
     "content_filter",
     "content management policy",
     "content_policy_violation",
-    "responsibleaipolicy",
+    "responsibleai",
     "responsible ai",
+    "block action",
     "safety system",
+    "safety polic",
+    "mainline safety",
+    "safety_violations",
     "content filter",
     "was filtered",
     "moderation_blocklist",
@@ -123,12 +128,43 @@ _CONTENT_FILTER_MARKERS = (
     "image_generation_user_error",
 )
 
+# Markers that indicate a transient rate-limit / throttling response that should
+# be retried rather than reported as a permanent error or a safety gate.
+_RATE_LIMIT_MARKERS = (
+    "rate limit",
+    "ratelimit",
+    "too many requests",
+)
+
+_RETRY_AFTER_RE = re.compile(r"retry after (\d+)\s*second", re.IGNORECASE)
+
 
 def is_content_filter_block(message: str, payload: dict[str, Any] | None = None) -> bool:
     blob = (message or "").lower()
     if payload:
         blob += " " + json.dumps(payload).lower()
     return any(marker in blob for marker in _CONTENT_FILTER_MARKERS)
+
+
+def is_rate_limit_error(message: str, status: int = 0, payload: dict[str, Any] | None = None) -> bool:
+    if status == 429:
+        return True
+    blob = (message or "").lower()
+    if payload:
+        blob += " " + json.dumps(payload).lower()
+    return any(marker in blob for marker in _RATE_LIMIT_MARKERS)
+
+
+def parse_retry_after(message: str, default: int = 60) -> int:
+    """Best-effort parse of a "retry after N seconds" hint from an error message."""
+
+    match = _RETRY_AFTER_RE.search(message or "")
+    if match:
+        try:
+            return max(1, int(match.group(1)))
+        except ValueError:
+            pass
+    return default
 
 
 def parse_size(value: str | None) -> tuple[int, int]:
@@ -787,11 +823,19 @@ class ApiClient:
             "blockReason": "",
             "image": None,
             "url": "",
+            "retryAfter": 0,
         }
 
         try:
             generation = self.generate_text(model, prompt, "1024x1024", "high", "png")
         except ApiError as exc:
+            if is_rate_limit_error(str(exc), exc.status, exc.payload):
+                result.update(
+                    outcome="rate_limited",
+                    blockReason=str(exc),
+                    retryAfter=parse_retry_after(str(exc)),
+                )
+                return result
             blocked = is_content_filter_block(str(exc), exc.payload)
             result.update(
                 outcome="blocked" if blocked else "error",
@@ -800,6 +844,13 @@ class ApiClient:
             )
             return result
         except Exception as exc:
+            if is_rate_limit_error(str(exc)):
+                result.update(
+                    outcome="rate_limited",
+                    blockReason=str(exc),
+                    retryAfter=parse_retry_after(str(exc)),
+                )
+                return result
             blocked = is_content_filter_block(str(exc))
             result.update(
                 outcome="blocked" if blocked else "error",

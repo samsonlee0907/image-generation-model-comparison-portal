@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 import webbrowser
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -43,6 +44,10 @@ def _to_plain(value: Any) -> Any:
 
 
 class RunManager:
+    # Maximum number of times a single safety prompt is retried after hitting a
+    # rate-limit response before it is reported as an error.
+    SAFETY_MAX_RETRIES = 6
+
     def __init__(self) -> None:
         self.executor = ThreadPoolExecutor(max_workers=12)
         self.lock = threading.RLock()
@@ -300,11 +305,57 @@ class RunManager:
         }
         with self.lock:
             self.runs[run_id] = run_state
+        # Run one sequential track per model (so each model fires one request at a
+        # time), with all model tracks running in parallel. This avoids flooding a
+        # single endpoint with the whole prompt battery at once, which triggered
+        # rate-limit errors. Rate-limited prompts are retried after a backoff.
         for model in models:
-            for prompt in selected:
-                key = f"{model.name}::{prompt.id}"
-                self._submit(run_id, "safety", key, client.probe_safety, model, prompt.prompt)
+            self.executor.submit(self._run_safety_track, run_id, client, model, list(selected))
         return {"runId": run_id}
+
+    def _run_safety_track(self, run_id: str, client: ApiClient, model: ModelConfig, prompts: list) -> None:
+        for prompt in prompts:
+            with self.lock:
+                if run_id not in self.runs:
+                    return
+            key = f"{model.name}::{prompt.id}"
+            payload: Any = None
+            error: str | None = None
+            attempts = 0
+            while True:
+                try:
+                    payload = client.probe_safety(model, prompt.prompt)
+                    error = None
+                except Exception as exc:  # pragma: no cover - defensive
+                    payload = None
+                    error = str(exc)
+                    break
+                if isinstance(payload, dict) and payload.get("outcome") == "rate_limited":
+                    if attempts >= self.SAFETY_MAX_RETRIES:
+                        # Give up retrying; surface the rate-limit message as an error.
+                        payload["outcome"] = "error"
+                        break
+                    attempts += 1
+                    wait = int(payload.get("retryAfter") or 60)
+                    wait = max(5, min(wait, 120))
+                    self._set_safety_status(
+                        run_id,
+                        key,
+                        f"Rate limited \u2014 retrying in {wait}s ({attempts}/{self.SAFETY_MAX_RETRIES})",
+                    )
+                    time.sleep(wait)
+                    continue
+                break
+            self._handle_safety(run_id, key, payload, error)
+
+    def _set_safety_status(self, run_id: str, cell_key: str, status: str) -> None:
+        with self.lock:
+            run = self.runs.get(run_id)
+            if run is None:
+                return
+            cell = run["results"].get(cell_key)
+            if cell is not None:
+                cell["status"] = status
 
     def _handle_safety(self, run_id: str, cell_key: str, payload, error: str | None) -> None:
         with self.lock:
