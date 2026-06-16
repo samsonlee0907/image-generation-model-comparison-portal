@@ -228,13 +228,15 @@ executive scorecard plus **four comparison categories**:
   **measured latency** from this test set; edit quality is shown as **N/A** for
   models that have no image-edit support);
 - **1 · Image Generation Quality (including editing)** — generation and edit
-  nested as two subsections that first explain *what each run tests*, then show a
-  quality leaderboard, a per-run score matrix, a 13-dimension heatmap, per-model
-  radar charts, latency and image-generation token cost, recurring
-  strengths/weaknesses, and a thumbnail gallery with the original prompt shown
-  above each run. The edit subsection embeds the shared **reference image**,
-  emphasizes the detail-retention axes, and **excludes** fallback-only models (no
-  edit support) from the comparison;
+  nested as two subsections. Each subsection reads top-to-bottom as a story:
+  first a plain-language **results overview** with the quality leaderboard, then
+  an explanation of the **13 evaluation dimensions** (what each one measures),
+  then the **scoring detail** (per-run matrix, dimension heatmap, radar charts,
+  latency/token cost, recurring strengths/weaknesses), then **how each theme is
+  tested**, and finally a **result gallery** showing the actual output with the
+  original prompt above each run. The edit subsection embeds the shared
+  **reference image**, emphasizes the detail-retention axes, and **excludes**
+  fallback-only models (no edit support) from the comparison;
 - **2 · Content Safety** — opens with a **severity-scale legend** (L1–L5+ with
   example prompts), then reports the headline **high-severity (L4–L5+) gating**
   per model, a **sensitivity profile** (benign L1–L2 = false-positive/over-refusal
@@ -246,15 +248,21 @@ executive scorecard plus **four comparison categories**:
 - **3 · Pricing** — published list pricing per model (per-token for Azure OpenAI
   and the MAI models, per-megapixel for FLUX), normalized to an estimated cost of
   a single 1024×1024 image so the models can be compared like-for-like;
-- **4 · Availability** — deployment shape, default quota/throughput, region
-  coverage, and the **average latency measured in this test set**, with links to
-  the Foundry region matrix and quota docs.
+- **4 · Availability** — quantified capacity and latency: the **configured
+  request-per-minute (RPM)** limit actually set on each deployment in the test
+  subscription (read from Azure — e.g. gpt-image-2 & MAI-Image-2 at 9 RPM,
+  flux-2-pro at 4 RPM, MAI-Image-2.5 at 2 RPM), the region/SKU, the **measured
+  latency** shown both in seconds and **relative to the fastest model**, and the
+  published default/scaling guidance, with links to the Foundry region matrix and
+  quota docs.
 
-Pricing and quota/region figures are **external reference data** (sourced from
-Azure pricing pages and Microsoft release material, with an as-of date) and
-should be confirmed against live pricing; the **latency figures are measured**
-from the run data. The reference data lives in an editable
-`tools/model-reference.json` and can be swapped via `--reference path.json`.
+Pricing and the published quota/region guidance are **external reference data**
+(sourced from Azure pricing pages and Microsoft release material, with an as-of
+date) and should be confirmed against live pricing. The **configured RPM and the
+latency figures are measured** — the RPM is read from the actual test deployments
+and is the capacity that produced the observed latency. The reference data lives
+in an editable `tools/model-reference.json` (including an `azure_measured` block
+per model) and can be swapped via `--reference path.json`.
 
 The output is fully offline: inline CSS, hand-built inline SVG charts, and
 base64-embedded thumbnails — no CDN, scripts, or network requests (the only

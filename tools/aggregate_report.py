@@ -95,6 +95,22 @@ RETENTION_DIMS = [
     "text_rendering",
     "fine_detail",
 ]
+# Plain-language description of what each evaluation dimension measures.
+DIM_DESC = {
+    "prompt_adherence": "How fully the image satisfies everything the prompt asked for.",
+    "object_accuracy": "Whether the requested objects are present and correctly depicted.",
+    "object_counting": "Whether the number of each object matches the prompt.",
+    "attribute_binding": "Whether attributes (colour, size, material) attach to the right objects.",
+    "spatial_relationship": "Whether objects sit where described (left/right, on/under, behind).",
+    "action_interaction": "Whether the described actions and interactions actually happen.",
+    "text_rendering": "Legibility and spelling of any words the prompt asks to render.",
+    "anatomy_proportions": "Plausibility of human and animal anatomy and proportions.",
+    "physics_realism": "Believable lighting, shadows, reflections and physical consistency.",
+    "color_accuracy": "Whether colours and tones match what was requested.",
+    "fine_detail": "Sharpness and richness of fine texture and small details.",
+    "composition_aesthetics": "Overall framing, balance and visual appeal.",
+    "style_adherence": "Whether the requested art or visual style is followed.",
+}
 
 LEVEL_ORDER = ["L1", "L2", "L3", "L4", "L5", "L5+"]
 HIGH_SEVERITY = {"L4", "L5", "L5+"}
@@ -689,7 +705,7 @@ nav.toc a:hover{background:#15233f;}
 .sub{color:#94a3b8;margin:0 0 14px;}
 .legend{font-size:12.5px;color:#94a3b8;margin:6px 0 0;}
 table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px;}
-th,td{border:1px solid #1e293b;padding:7px 9px;text-align:center;overflow-wrap:anywhere;word-break:break-word;}
+th,td{border:1px solid #1e293b;padding:7px 9px;text-align:center;overflow-wrap:break-word;}
 th{background:#111c33;color:#cbd5e1;font-weight:600;}
 td.label,th.label{text-align:left;}
 td.nowrap,th.nowrap{white-space:nowrap;}
@@ -724,7 +740,7 @@ td.score{font-weight:700;color:#f8fafc;}
 .run-sum{margin:0 0 6px;}
 details.prompt{margin:4px 0 8px;}
 details.prompt summary{cursor:pointer;color:#60a5fa;font-size:12.5px;}
-details.prompt p{background:#0f1a30;border:1px solid #1e293b;border-radius:8px;padding:8px 10px;margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;}
+details.prompt p{background:#0f1a30;border:1px solid #1e293b;border-radius:8px;padding:8px 10px;margin:6px 0 0;white-space:pre-wrap;overflow-wrap:break-word;}
 @media(max-width:640px){.refimg{grid-template-columns:1fr;}}
 .callout{background:#231603;border:1px solid #92660a;border-radius:10px;padding:12px 14px;margin:14px 0;font-size:13.5px;}
 .callout.warn{background:#2a0e0e;border-color:#7f1d1d;}
@@ -799,6 +815,25 @@ def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str]
     )
 
 
+def _quality_narrative(agg: dict, ranked: list[str], noun_plural: str) -> str:
+    scored = [(m, agg["models"][m]["overall_avg"]) for m in ranked
+              if isinstance(agg["models"][m]["overall_avg"], (int, float))]
+    if not scored:
+        return "No comparable scores were produced for this category."
+    n = len(agg["runs"])
+    top_m, top_v = scored[0]
+    s = (f"Across the {n} {noun_plural}, <b>{esc(top_m)}</b> led with an average quality score of "
+         f"<b>{top_v:.2f}/10</b>")
+    if len(scored) > 1:
+        second_m, second_v = scored[1]
+        s += f", ahead of {esc(second_m)} ({second_v:.2f})"
+    if len(scored) > 2:
+        last_m, last_v = scored[-1]
+        s += (f"; {esc(last_m)} trailed at {last_v:.2f}, a {top_v - last_v:.2f}-point spread "
+              "from top to bottom")
+    return s + ". The leaderboard below ranks every comparable model; the detailed breakdown follows."
+
+
 def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor: str,
                            emphasize_retention: bool, no_images: bool, thumb_px: int,
                            title_tag: str = "h2", title_class: str = "") -> str:
@@ -811,42 +846,36 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
         return heading + f'<p class="muted">No {esc(title.lower())} runs found.</p>'
     out = [heading]
 
-    # Reference image (the shared source every edit was applied to).
-    if emphasize_retention and not no_images:
-        src = next((r.get("source_image") for r in runs if r.get("source_image")), None)
-        uri = embed_image(src, no_images, thumb_px)
-        if uri:
-            src_sum = next((r.get("source_summary") for r in runs if r.get("source_summary")), "")
-            out.append(
-                '<div class="refimg"><figure><img src="' + uri + '" alt="reference image">'
-                '<figcaption>Reference image — every edit below started from this exact source.</figcaption>'
-                '</figure><div><h3 style="margin-top:0">The source being edited</h3>'
-                f'<p class="small muted">{esc(src_sum)}</p>'
-                '<p class="legend">Each scenario asks for one targeted change while keeping everything '
-                'else identical, so each result can be compared directly against this image to judge how '
-                'well the original detail is retained.</p></div></div>'
-            )
-
-    # What each run tests — give the reader context before the scores.
-    noun = "edit scenario" if emphasize_retention else "generation theme"
-    out.append(f'<h3>What each {noun} tests</h3>')
-    out.append('<table><tr><th class="label">Run</th><th class="label">What it targets</th></tr>')
-    for run in runs:
-        out.append(
-            f'<tr><td class="label"><b>{esc(run["title"])}</b></td>'
-            f'<td class="label small">{esc(run.get("summary") or "—")}</td></tr>'
-        )
-    out.append("</table>")
-
-    # Leaderboard (avg overall, ranked) — comparison models only.
+    # Ranking used by both the narrative and the leaderboard.
     ranked = sorted(comp, key=lambda m: (agg["models"][m]["overall_avg"] is None,
                                           -(agg["models"][m]["overall_avg"] or 0)))
+    noun = "edit scenario" if emphasize_retention else "generation theme"
+    noun_plural = "edit scenarios" if emphasize_retention else "generation themes"
+
+    # 1) Describe the result first: a short narrative + the leaderboard.
+    out.append("<h3>Results at a glance</h3>")
+    out.append(f'<p class="sub">{_quality_narrative(agg, ranked, noun_plural)}</p>')
     max_overall = max([agg["models"][m]["overall_avg"] or 0 for m in comp] + [10])
     bar_rows = [(m, agg["models"][m]["overall_avg"], colors[m]) for m in ranked]
-    out.append("<h3>Leaderboard — average quality score</h3>")
+    out.append('<div class="legend">Average quality score across all '
+               f'{len(runs)} {noun_plural} (0–10, higher is better).</div>')
     out.append(svg_hbars(bar_rows, max_val=max(10, max_overall)))
 
-    # Per-run score matrix (all models; N/A for those without edit support).
+    # 2) Explain how the score is built — the evaluation dimensions.
+    out.append(f"<h3>How we evaluate — the {len(DIM_KEYS)} quality dimensions</h3>")
+    out.append('<p class="legend">The evaluator LLM scores every image on these axes (each 0–10), aligned '
+               'with public text-to-image benchmarks (GenEval, T2I-CompBench, DPG-Bench); the overall score '
+               'is their aggregate.'
+               + (' Axes marked ★ are the detail-retention axes that matter most when judging an edit.'
+                  if emphasize_retention else "") + '</p>')
+    out.append('<table><tr><th class="label">Dimension</th><th class="label">What it measures</th></tr>')
+    for k in DIM_KEYS:
+        star = "★ " if emphasize_retention and k in RETENTION_DIMS else ""
+        out.append(f'<tr><td class="label"><b>{star}{esc(DIM_LABELS[k])}</b></td>'
+                   f'<td class="label small">{esc(DIM_DESC[k])}</td></tr>')
+    out.append("</table>")
+
+    # 3) Scoring details.
     out.append("<h3>Per-run scores</h3>")
     out.append('<table><tr><th class="label">Run</th>' + "".join(f'<th>{esc(m)}</th>' for m in order) + "</tr>")
     for run in runs:
@@ -947,7 +976,31 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
         )
     out.append("</div>")
 
-    # Gallery — show the prompt above each run's generated results.
+    # 4) How each theme/scenario is tested — context for the gallery that follows.
+    out.append(f'<h3 class="cat-sub" style="font-size:18px">How each {noun} is tested</h3>')
+    if emphasize_retention and not no_images:
+        src = next((r.get("source_image") for r in runs if r.get("source_image")), None)
+        uri = embed_image(src, no_images, thumb_px)
+        if uri:
+            src_sum = next((r.get("source_summary") for r in runs if r.get("source_summary")), "")
+            out.append(
+                '<div class="refimg"><figure><img src="' + uri + '" alt="reference image">'
+                '<figcaption>Reference image — every edit below started from this exact source.</figcaption>'
+                '</figure><div><h4 style="margin-top:0">The source being edited</h4>'
+                f'<p class="small muted">{esc(src_sum)}</p>'
+                '<p class="legend">Each scenario asks for one targeted change while keeping everything '
+                'else identical, so each result can be compared directly against this image to judge how '
+                'well the original detail is retained.</p></div></div>'
+            )
+    out.append('<table><tr><th class="label">Run</th><th class="label">What it targets</th></tr>')
+    for run in runs:
+        out.append(
+            f'<tr><td class="label"><b>{esc(run["title"])}</b></td>'
+            f'<td class="label small">{esc(run.get("summary") or "—")}</td></tr>'
+        )
+    out.append("</table>")
+
+    # 5) Show the actual output — gallery with the prompt above each run.
     if not no_images:
         out.append("<h3>Result gallery</h3>")
         for run in runs:
@@ -1211,38 +1264,72 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
     ref_models = ref.get("models") or {}
     out = ['<h2 id="availability">4 · Availability</h2>']
     out.append(
-        '<p class="sub">Deployment shape, default capacity / throughput and region coverage for each '
-        'model, plus the <b>average wall-clock latency actually measured in this test set</b> (across the '
-        'generation and edit runs). Quota and region figures are reference values from Microsoft docs and '
-        'are raised through standard Azure quota requests; latency is empirical and will vary with region, '
-        'load, image size and quality settings.</p>')
-    out.append('<table><tr><th class="label">Model</th><th class="label">Deployment</th>'
-               '<th class="label">Default quota / throughput</th><th class="label">Regions</th>'
-               '<th>Measured avg latency</th><th class="label">Source</th></tr>')
+        '<p class="sub">Capacity, throughput, latency and region coverage. The headline numbers here are '
+        '<b>quantified</b>: the <b>configured capacity</b> column shows the actual request-per-minute (RPM) '
+        'limit set on each deployment in the test subscription (Global Standard, Sweden Central) — the same '
+        'capacity that produced the latencies on the right — and latency is shown both in seconds and '
+        '<b>relative to the fastest model</b> so the comparison is objective. Configured RPM is a '
+        'per-deployment default that can be raised through a quota request; it is not a vendor-wide maximum.</p>')
+    out.append('<table><tr><th class="label">Model</th><th class="label">Region &amp; SKU</th>'
+               '<th class="label">Configured capacity</th>'
+               '<th class="label">Measured latency<br><span class="muted small">(avg · ×fastest)</span></th>'
+               '<th class="label">Published default / scaling</th>'
+               '<th class="label">Source</th></tr>')
 
     nums = {m: v for m, v in latency.items() if isinstance(v, (int, float))}
     fastest = min(nums, key=nums.get) if nums else None
+    fastest_lat = nums[fastest] if fastest else None
     for m in models_order:
         e = ref_models.get(m) or {}
+        am = e.get("azure_measured") or {}
         lat = latency.get(m)
-        lat_txt = f"{lat:.1f}s" if isinstance(lat, (int, float)) else "—"
+        if isinstance(lat, (int, float)):
+            rel = f" · {lat / fastest_lat:.1f}×" if fastest_lat else ""
+            lat_txt = f"{lat:.1f}s{rel}"
+        else:
+            lat_txt = "—"
         win = " win" if m == fastest else ""
-        regions = e.get("regions") or []
-        reg_txt = "<br>".join(esc(r) for r in regions) if regions else "—"
+
+        # Region & SKU (prefer the actually-measured deployment shape).
+        if am:
+            ver = f' · {esc(am["deployed_version"])}' if am.get("deployed_version") else ""
+            reg_sku = f'{esc(am.get("region","—"))} · {esc(am.get("sku","—"))}{ver}'
+        else:
+            regions = e.get("regions") or []
+            reg_sku = "<br>".join(esc(r) for r in regions) if regions else "—"
+
+        # Configured capacity — quantified RPM if known.
+        rpm = am.get("configured_rpm")
+        if isinstance(rpm, (int, float)):
+            limit = am.get("limit_type", "")
+            cap_html = (f'<b>{rpm:g} req/min (RPM)</b>'
+                        + (f'<div class="muted small">{esc(limit)}</div>' if limit else ""))
+        else:
+            cap_html = '<span class="muted">see published default →</span>'
+
+        # Published default / scaling guidance (the prior reference text).
         quota = esc(e.get("quota", "—"))
         thru = e.get("throughput")
         thru_html = f'<div class="muted small">{esc(thru)}</div>' if thru else ""
+
         src_url = e.get("source_url", "")
         src = esc(e.get("source", "—"))
         src_html = f'<a href="{esc(src_url)}" rel="noreferrer">{src}</a>' if src_url else src
         out.append(
             f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>{esc(m)}</td>'
-            f'<td class="label small">{esc(e.get("deployment","—"))}</td>'
-            f'<td class="label small">{quota}{thru_html}</td>'
-            f'<td class="label small">{reg_txt}</td>'
+            f'<td class="label small">{reg_sku}</td>'
+            f'<td class="label small">{cap_html}</td>'
             f'<td class="score{win}">{lat_txt}</td>'
+            f'<td class="label small">{quota}{thru_html}</td>'
             f'<td class="label small">{src_html}</td></tr>')
     out.append("</table>")
+
+    cap_note = ref.get("capacity_note")
+    if cap_note:
+        out.append(f'<div class="callout"><b>About the configured capacity:</b> {esc(cap_note)} All four '
+                   'models were called sequentially (one request at a time) under these limits, so the '
+                   'measured latency reflects single-request responsiveness, not throughput under '
+                   'concurrency.</div>')
 
     rm_url = ref.get("region_matrix_url")
     q_url = ref.get("quota_doc_url")

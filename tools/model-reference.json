@@ -15,6 +15,7 @@
       "quota": "Per-subscription TPM/RPM, tiered; raise via an Azure quota-increase request",
       "throughput": "Image deployments start with a modest images-per-minute allowance that scales with assigned TPM/RPM quota",
       "regions": ["East US", "East US 2", "West US 3", "Sweden Central"],
+      "azure_measured": {"region": "Sweden Central", "sku": "GlobalStandard", "configured_rpm": 9, "deployed_version": "2026-04-21", "limit_type": "RPM only (no separate token bucket on this image deployment)"},
       "source": "Azure OpenAI pricing (gpt-image-1 reference rates)",
       "source_url": "https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/",
       "confidence": "reference — exact gpt-image-2 rates are not separately published; gpt-image-1 token rates used as a stand-in"
@@ -28,6 +29,7 @@
       "quota": "Global Standard shared quota pool per subscription (not per-region)",
       "throughput": "Per-subscription RPM/TPM against the shared Global Standard pool; confirm the model SKU default in the portal",
       "regions": ["Global Standard (shared) — see Foundry region matrix"],
+      "azure_measured": {"region": "Sweden Central", "sku": "GlobalStandard", "configured_rpm": 4, "deployed_version": "FLUX.2-pro v1", "limit_type": "RPM only"},
       "source": "Azure AI Foundry Models pricing — Black Forest Labs",
       "source_url": "https://azure.microsoft.com/en-us/pricing/details/ai-foundry-models/black-forest-labs/",
       "confidence": "high"
@@ -40,6 +42,7 @@
       "quota": "Foundry first-party quota; managed per subscription (see model card)",
       "throughput": "Optimized for high-volume / always-on workloads; ~2x faster than the prior generation per Microsoft",
       "regions": ["Microsoft Foundry first-party (Global Standard) — see Foundry region matrix"],
+      "azure_measured": {"region": "Sweden Central", "sku": "GlobalStandard", "configured_rpm": 9, "deployed_version": "2026-02-20", "limit_type": "RPM only"},
       "source": "Microsoft AI blog — 3 new MAI models available in Foundry",
       "source_url": "https://microsoft.ai/news/today-were-announcing-3-new-world-class-mai-models-available-in-foundry/",
       "confidence": "high (official Microsoft AI blog)"
@@ -53,11 +56,13 @@
       "quota": "Foundry first-party quota; managed per subscription (see model card)",
       "throughput": "Flash variant targets fast, scalable production workloads; best price-to-performance ELO per Microsoft",
       "regions": ["Microsoft Foundry first-party (Global Standard) — see Foundry region matrix"],
+      "azure_measured": {"region": "Sweden Central", "sku": "GlobalStandard", "configured_rpm": 2, "deployed_version": "2026-06-02", "limit_type": "RPM only"},
       "source": "Microsoft Foundry — new MAI models (Build 2026), MAI-Image-2.5 Foundry model card",
       "source_url": "https://azurefeeds.com/2026/06/03/new-mai-models-in-microsoft-foundry-across-text-image-voice-and-speech/",
       "confidence": "high (official Foundry model-card pricing)"
     }
   },
+  "capacity_note": "azure_measured values are the request-per-minute (RPM) limits actually configured on the test deployments (Global Standard, Sweden Central) at the time the latencies were recorded, read from Azure. They are the per-deployment defaults for this subscription and can be raised via a quota request; they are not vendor-wide maximums. These image deployments are RPM-limited and do not expose a separate TPM bucket.",
   "region_matrix_url": "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability",
   "quota_doc_url": "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/quotas-limits"
 }
