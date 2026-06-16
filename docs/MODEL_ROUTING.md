@@ -48,14 +48,19 @@ schema**, the **auth header**, and **whether image edit is supported**.
 
 ### `flux` — Black Forest Labs
 
-- **Generate / Edit URL:** `{endpoint}/providers/blackforestlabs/v1/{model_id}?api-version={api_version}`
-- **Routed by:** **FLUX model name in the URL path** (there is no Azure deployment segment).
+- **Generate / Edit URL:** `{endpoint}/providers/blackforestlabs/v1/{deployment}?api-version={api_version}`
+- **Routed by:** the **Azure deployment name** in the URL path (e.g. `flux-2-pro` — lowercase, exactly
+  as it appears in your endpoint URL). This is **not** the catalog name.
 - **Auth:** sends both `api-key` and `Authorization: Bearer` (gateways accept either).
-- **Body:** JSON `{ model, prompt, width, height, output_format, num_images }`. Optional keys are
-  progressively dropped on a `400`.
+- **Body:** JSON `{ model, prompt, width, height, output_format, num_images }`. The body `model`
+  defaults to the deployment name; if your gateway requires the **catalog** name (e.g. `FLUX.2-pro`),
+  set it under **Advanced → Body model id**. Optional keys are progressively dropped on a `400`.
 - **Edit:** same route; base64 source images embedded as `input_image` / `input_image_N`.
 - **Response image:** `data[].b64_json|base64|image` or `result.b64_json|base64|image`.
 - **Supports edit:** yes.
+
+> Example matching a working curl: deployment (path) = `flux-2-pro`, Advanced → Body model id =
+> `FLUX.2-pro`.
 
 ### `mai` — Microsoft MAI-Image
 

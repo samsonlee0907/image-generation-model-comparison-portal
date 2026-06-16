@@ -97,8 +97,8 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "FLUX.1-Kontext-pro, FLUX-1.1-pro, and newer)."
         ),
         auth="api-key+bearer",
-        generate_template="{endpoint}/providers/blackforestlabs/v1/{model_id}?api-version={api_version}",
-        edit_template="{endpoint}/providers/blackforestlabs/v1/{model_id}?api-version={api_version}",
+        generate_template="{endpoint}/providers/blackforestlabs/v1/{deployment}?api-version={api_version}",
+        edit_template="{endpoint}/providers/blackforestlabs/v1/{deployment}?api-version={api_version}",
         body_style="flux",
         supports_edit=True,
         api_version_field="flux_api_version",
@@ -111,11 +111,14 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "result.base64",
             "result.image",
         ),
-        identifier_label="FLUX Model Name",
-        identifier_placeholder="FLUX.2-pro",
+        identifier_label="Deployment Name",
+        identifier_placeholder="flux-2-pro",
         notes=(
-            "Routed by FLUX model name in the URL path (no Azure deployment). "
-            "JSON body with model/prompt/width/height/output_format/num_images. "
+            "The URL routes by the Azure *deployment name* path segment (e.g. "
+            "'flux-2-pro' — lowercase, as it appears in your endpoint URL), NOT "
+            "the catalog name. The request body 'model' defaults to the same "
+            "deployment name; if your gateway requires the catalog name (e.g. "
+            "'FLUX.2-pro'), set it under Advanced -> 'Body model id'. "
             "Edits embed base64 source images as input_image / input_image_N."
         ),
     ),
