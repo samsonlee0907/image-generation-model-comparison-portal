@@ -114,6 +114,10 @@ Edit support by family: `gpt-image` (mask inpainting), `flux` (instruction/refer
 `mai` (instruction edit on `MAI-Image-2.5` / `2.5-Flash` and newer; `MAI-Image-2` / `2e` fall back to
 text-to-image). See [`docs/MODEL_ROUTING.md`](docs/MODEL_ROUTING.md) for the per-family edit routes.
 
+When auto-evaluation is enabled for an edit run, the evaluator LLM receives **both** the original
+source image and each model's edited result, so it can score how faithfully the requested change was
+applied **and** how well the original details, objects, identities, and context were retained.
+
 ![Image Edit Workflow](img/image-edit-workflow.png)
 
 ## Content Safety Flow

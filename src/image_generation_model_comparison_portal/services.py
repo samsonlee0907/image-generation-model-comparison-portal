@@ -61,6 +61,10 @@ EVAL_SYS = (
     "DPG-Bench) and human-preference scoring. Each dimension and what it measures:\n"
     f"{_dimension_guidance_block()}\n"
     "You receive: 1) the original prompt, 2) the generated image, 3) optional Azure AI Vision analysis.\n"
+    "For IMAGE EDIT evaluations you also receive the ORIGINAL SOURCE image before the EDITED RESULT "
+    "image. In that case, judge the result against the source: reward faithful application of the "
+    "requested change together with preservation of the original details, objects, identities, "
+    "context, and layout that were not asked to change, and penalize unintended drift or lost detail.\n"
     "When CV data is provided, cross-reference detected object counts against prompt quantities. CV may miss "
     "small or occluded objects, so use it as evidence, not as the only source.\n"
     "For images containing people, do not depend on face identity, facial detail, or facial sharpness because "
@@ -921,12 +925,26 @@ class ApiClient:
         generation_prompt: str | None = None,
         dimension_map: dict[str, str] | None = None,
         source_summary: str | None = None,
+        source_image_data_url: str | None = None,
     ) -> EvalResult:
         if not self.config.eval_deployment:
             raise RuntimeError("Set Evaluator LLM first.")
         url = self._chat_url(self.config.eval_deployment)
         cv_summary = self.summarize_cv_for_eval(cv_result)
-        user_text = f'Original user prompt:\n"""{prompt}"""\n\nEvaluate the image. All fields are mandatory.'
+        has_source_image = bool(source_image_data_url)
+        if has_source_image:
+            user_text = (
+                f'Original edit instruction:\n"""{prompt}"""\n\n'
+                "This is an IMAGE EDIT evaluation. TWO images are attached: the FIRST is the "
+                "ORIGINAL SOURCE image, and the SECOND is the EDITED RESULT produced by the model. "
+                "Judge how faithfully the edit applied the requested change while RETAINING the "
+                "original details, context, objects, identities, and layout that the instruction did "
+                "not ask to change. Compare the result directly against the source — reward "
+                "preservation of unchanged content and penalize unintended drift, lost detail, or "
+                "altered objects/people/background. All fields are mandatory."
+            )
+        else:
+            user_text = f'Original user prompt:\n"""{prompt}"""\n\nEvaluate the image. All fields are mandatory.'
         if generation_prompt and generation_prompt.strip() and generation_prompt.strip() != prompt.strip():
             user_text += f'\n\nGeneration prompt actually used:\n"""{generation_prompt}"""'
         if source_summary:
@@ -941,6 +959,22 @@ class ApiClient:
                 "--- END CV ---\n"
                 "Cross-reference detected objects against prompt quantities."
             )
+        content: list[dict[str, Any]] = [{"type": "text", "text": user_text}]
+        if has_source_image:
+            content.append({"type": "text", "text": "ORIGINAL SOURCE image:"})
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": source_image_data_url, "detail": self.config.eval_detail},
+                }
+            )
+            content.append({"type": "text", "text": "EDITED RESULT image:"})
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": image_data_url, "detail": self.config.eval_detail},
+            }
+        )
         payload = {
             "model": self.config.eval_deployment,
             "max_completion_tokens": 4000,
@@ -948,25 +982,15 @@ class ApiClient:
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": EVAL_SYS},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_text},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": image_data_url,
-                                "detail": self.config.eval_detail,
-                            },
-                        },
-                    ],
-                },
+                {"role": "user", "content": content},
             ],
         }
         redacted_request = copy.deepcopy(payload)
-        image_ref = redacted_request["messages"][1]["content"][1]["image_url"]["url"]
-        if len(image_ref) > 96:
-            redacted_request["messages"][1]["content"][1]["image_url"]["url"] = image_ref[:96] + "..."
+        for item in redacted_request["messages"][1]["content"]:
+            if item.get("type") == "image_url":
+                image_ref = item["image_url"]["url"]
+                if len(image_ref) > 96:
+                    item["image_url"]["url"] = image_ref[:96] + "..."
         response = requests.post(url, headers=self._auth_headers("api-key", True), json=payload, timeout=self._timeout_for("eval"))
         raw_payload = self._read_json(response)
         self._raise_for_payload(response, raw_payload)

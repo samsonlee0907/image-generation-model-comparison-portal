@@ -918,6 +918,7 @@ class RunManager:
             run["progress"] = {"label": "Evaluating", "done": 0, "total": len(model_names)}
             run["activeTargets"] = list(model_names)
         client = ApiClient(config)
+        source_image_data_url = self._source_eval_data_url(run_id)
         for model_name in model_names:
             generation = self.runs[run_id]["results"][model_name]["generation"]
             if not generation:
@@ -937,7 +938,30 @@ class RunManager:
                 self.runs[run_id]["effectivePrompt"],
                 self.runs[run_id]["promptGuidance"]["dimensionMap"],
                 self.runs[run_id]["promptGuidance"]["sourceSummary"],
+                source_image_data_url,
             )
+
+    def _source_eval_data_url(self, run_id: str) -> str | None:
+        """Build a data URL for the first edit source image, for eval comparison.
+
+        Only edit runs have source images; text-to-image runs return ``None`` so
+        the evaluator sees a single generated image as before.
+        """
+
+        run = self.runs[run_id]
+        if run.get("mode") != "edit":
+            return None
+        source_paths = run.get("sourcePaths") or []
+        if not source_paths:
+            return None
+        path = Path(source_paths[0])
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return None
+        suffix = path.suffix.lower()
+        mime = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
+        return image_data_url(mime, base64.b64encode(raw).decode("ascii"))
 
     def _cv_from_frontend(self, cv_payload: dict[str, Any] | None):
         if not cv_payload or cv_payload.get("error"):
