@@ -1,6 +1,6 @@
 # Image Generation Model Comparison
 
-Aggregated report generated 2026-06-17 14:59 · 4 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-17 15:46 · 4 models · evaluator `gpt-5.4`.
 
 Every model was put through the **same** battery: **12** image-generation themes, **12** image-edit scenarios, and a **96**-cell content-safety probe (harm categories × severity levels L1–L5+). Each section explains what its runs test before showing the scores.
 
@@ -30,27 +30,29 @@ One row per model. **Generation / edit quality** is the average evaluator score 
 
 How well each model turns a prompt into an image, scored by the evaluator LLM across 13 benchmark-aligned dimensions. Text-to-image generation and prompt-guided image editing are reported as two subsections below.
 
-The sweep ran every theme at **low → medium → high** quality, so the leaderboard below blends all tiers and the **Quality-tier scaling** table in each subsection isolates how the knob moves each model. Models whose API exposes a quality tier (the GPT-Image API) take longer to render and bill more image-output tokens at `high`. FLUX doesn't take this enum, so the portal translates the same tier into FLUX's own fidelity controls — at `high` it sends inference **steps**≈50 and a **guidance** scale≈4.0 (the prompt itself is never rewritten) so FLUX renders at a comparable effort level rather than its default. The MAI models expose no equivalent knob besides output **resolution**, so they run at each deployment's default fidelity regardless of tier. (If a hosted FLUX pipeline pins these parameters internally, the portal gracefully drops them and falls back to the default.) Deeper dive: [Image Quality Evaluation methodology](../docs/IMAGE_QUALITY_EVALUATION.md) — how the 13 dimensions are defined and scored.
+The sweep ran every theme at **low → medium → high** quality. The leaderboard below judges every model at its **best-effort (high)** setting — so a model that honours the quality knob isn't dragged down by its own low/medium runs — and the **Quality-tier scaling** table in each subsection isolates how the knob moves each model that exposes one. Models whose API exposes a quality tier (the GPT-Image API) take longer to render and bill more image-output tokens at `high`. FLUX doesn't take this enum, so the portal translates the same tier into FLUX's own fidelity controls — at `high` it sends inference **steps**≈50 and a **guidance** scale≈4.0 (the prompt itself is never rewritten) so FLUX renders at a comparable effort level rather than its default. The MAI models expose no equivalent knob besides output **resolution**, so they run at each deployment's default fidelity regardless of tier. (If a hosted FLUX pipeline pins these parameters internally, the portal gracefully drops them and falls back to the default.) Deeper dive: [Image Quality Evaluation methodology](../docs/IMAGE_QUALITY_EVALUATION.md) — how the 13 dimensions are defined and scored.
 
 ### Text-to-image generation
 
 #### Results at a glance
 
-Across the 12 generation themes, **gpt-image-2** led with an average quality score of **8.97/10**, ahead of MAI-Image-2.5 (8.12); flux-2-pro trailed at 6.88, a 2.09-point spread from top to bottom. The leaderboard below ranks every comparable model; the detailed breakdown follows.
+At each model's best-effort (high) setting across 4 generation themes, **gpt-image-2** led with an average quality score of **9.12/10**, ahead of MAI-Image-2.5 (7.72); flux-2-pro trailed at 6.93, a 2.19-point spread from top to bottom. The leaderboard below ranks every comparable model at its best effort; the quality-tier breakdown that follows shows how the models that expose a quality control respond as the knob is turned up.
 
-_Average quality score across all 12 generation themes (0–10, higher is better)._
+_Average quality score with each model at its **best-effort (high) setting** — 4 generation themes (0–10, higher is better). GPT-Image runs at `quality=high`, FLUX at its high steps/guidance preset, and MAI-Image at its single native operating point._
 
 | Rank | Model | Avg quality (0–10) | Runs |
 | --- | --- | --- | --- |
-| 1 | gpt-image-2 | **9.0** | 12 |
-| 2 | MAI-Image-2.5 | 8.1 | 12 |
-| 3 | MAI-Image-2 | 7.8 | 12 |
-| 4 | flux-2-pro | 6.9 | 12 |
+| 1 | gpt-image-2 | **9.1** | 4 |
+| 2 | MAI-Image-2.5 | 7.7 | 4 |
+| 3 | MAI-Image-2 | 7.7 | 4 |
+| 4 | flux-2-pro | 6.9 | 4 |
 
 
 #### Quality-tier scaling — low → medium → high
 
-Each model ran the same generation themes at every quality tier the sweep covered. This shows whether turning the quality knob up actually moves the score (GPT-Image honors the tier; FLUX maps it to steps/guidance; the MAI models largely ignore it) and what it costs in latency. Δ is the high-minus-low change.
+How each model that exposes a quality control responds as the knob is turned up (GPT-Image has a native quality field; FLUX maps the tier to steps/guidance). Δ is the high-minus-low change.
+
+> **Not shown here:** MAI-Image-2, MAI-Image-2.5 — the MAI-Image family exposes no quality parameter, so every tier sends an identical request. It is judged at its single native operating point in the best-effort leaderboard above and the per-dimension views, not on this scaling axis.
 
 _Average quality score per tier (0–10, higher is better)._
 
@@ -58,8 +60,6 @@ _Average quality score per tier (0–10, higher is better)._
 | --- | --- | --- | --- | --- |
 | gpt-image-2 | 8.7 | 9.1 | 9.1 | +0.40 |
 | flux-2-pro | 6.7 | 7.0 | 6.9 | +0.21 |
-| MAI-Image-2 | 7.8 | 7.8 | 7.7 | −0.18 |
-| MAI-Image-2.5 | 8.6 | 8.0 | 7.7 | −0.88 |
 
 
 _Average latency per tier (seconds, lower is better)._
@@ -68,8 +68,6 @@ _Average latency per tier (seconds, lower is better)._
 | --- | --- | --- | --- | --- |
 | gpt-image-2 | 28.1s | 55.2s | 145.3s | +117.2s |
 | flux-2-pro | 16.2s | 19.5s | 14.1s | −2.2s |
-| MAI-Image-2 | 26.5s | 29.4s | 27.8s | +1.3s |
-| MAI-Image-2.5 | 27.8s | 27.4s | 34.8s | +6.9s |
 
 #### How we evaluate — the 13 quality dimensions
 
@@ -126,10 +124,10 @@ _Grouped by quality tier so the same generation theme can be compared as the qua
 
 | Model | Prompt | Objects | Count | Binding | Spatial | Action | Text | Anatomy | Physics | Color | Detail | Aesthetics | Style | Avg |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| gpt-image-2 | 8.4 | 9.0 | 9.2 | 9.0 | 9.0 | 9.0 | 9.7 | 8.6 | 8.8 | 9.3 | 8.9 | 9.3 | 9.3 | **9.0** |
-| flux-2-pro | 5.9 | 5.8 | 4.8 | 5.7 | 7.5 | 5.7 | 6.8 | 6.9 | 7.8 | 7.6 | 8.0 | 8.2 | 9.2 | **6.9** |
-| MAI-Image-2 | 6.8 | 7.5 | 6.5 | 6.9 | 7.5 | 7.1 | 8.6 | 6.8 | 8.4 | 8.6 | 8.4 | 8.6 | 9.6 | **7.8** |
-| MAI-Image-2.5 | 7.2 | 7.6 | 7.5 | 8.1 | 8.8 | 8.4 | 7.6 | 7.6 | 8.4 | 9.2 | 8.3 | 8.4 | 9.4 | **8.1** |
+| gpt-image-2 | 8.5 | 9.2 | 9.5 | 9.0 | 9.8 | 9.8 | 9.5 | 8.8 | 9.0 | 9.2 | 8.8 | 9.5 | 9.2 | **9.1** |
+| flux-2-pro | 6.2 | 6.0 | 5.2 | 5.5 | 7.0 | 5.5 | 6.8 | 7.2 | 7.8 | 7.2 | 8.2 | 8.5 | 9.5 | **6.9** |
+| MAI-Image-2 | 6.8 | 7.0 | 6.0 | 6.2 | 7.8 | 7.0 | 8.8 | 7.0 | 8.5 | 8.2 | 8.5 | 8.8 | 9.5 | **7.7** |
+| MAI-Image-2.5 | 7.0 | 7.5 | 6.5 | 7.8 | 8.5 | 7.2 | 7.0 | 7.5 | 8.2 | 9.0 | 8.0 | 8.5 | 9.0 | **7.7** |
 
 #### Latency & cost
 
@@ -365,20 +363,22 @@ Use a clean, flat, corporate vector style with accurate proportional bar heights
 
 #### Results at a glance
 
-Across the 12 edit scenarios, **MAI-Image-2.5** led with an average quality score of **9.02/10**, ahead of gpt-image-2 (8.75); flux-2-pro trailed at 8.00, a 1.02-point spread from top to bottom. The leaderboard below ranks every comparable model; the detailed breakdown follows.
+At each model's best-effort (high) setting across 4 edit scenarios, **MAI-Image-2.5** led with an average quality score of **9.00/10**, ahead of gpt-image-2 (8.88); flux-2-pro trailed at 8.07, a 0.93-point spread from top to bottom. The leaderboard below ranks every comparable model at its best effort; the quality-tier breakdown that follows shows how the models that expose a quality control respond as the knob is turned up.
 
-_Average quality score across all 12 edit scenarios (0–10, higher is better)._
+_Average quality score with each model at its **best-effort (high) setting** — 4 edit scenarios (0–10, higher is better). GPT-Image runs at `quality=high`, FLUX at its high steps/guidance preset, and MAI-Image at its single native operating point._
 
 | Rank | Model | Avg quality (0–10) | Runs |
 | --- | --- | --- | --- |
-| 1 | MAI-Image-2.5 | **9.0** | 12 |
-| 2 | gpt-image-2 | 8.8 | 12 |
-| 3 | flux-2-pro | 8.0 | 12 |
+| 1 | MAI-Image-2.5 | **9.0** | 4 |
+| 2 | gpt-image-2 | 8.9 | 4 |
+| 3 | flux-2-pro | 8.1 | 4 |
 
 
 #### Quality-tier scaling — low → medium → high
 
-Each model ran the same edit scenarios at every quality tier the sweep covered. This shows whether turning the quality knob up actually moves the score (GPT-Image honors the tier; FLUX maps it to steps/guidance; the MAI models largely ignore it) and what it costs in latency. Δ is the high-minus-low change.
+How each model that exposes a quality control responds as the knob is turned up (GPT-Image has a native quality field; FLUX maps the tier to steps/guidance). Δ is the high-minus-low change.
+
+> **Not shown here:** MAI-Image-2, MAI-Image-2.5 — the MAI-Image family exposes no quality parameter, so every tier sends an identical request. It is judged at its single native operating point in the best-effort leaderboard above and the per-dimension views, not on this scaling axis.
 
 _Average quality score per tier (0–10, higher is better)._
 
@@ -386,7 +386,6 @@ _Average quality score per tier (0–10, higher is better)._
 | --- | --- | --- | --- | --- |
 | gpt-image-2 | 8.8 | 8.6 | 8.9 | +0.13 |
 | flux-2-pro | 8.0 | 7.9 | 8.1 | ±0 |
-| MAI-Image-2.5 | 9.1 | 9.0 | 9.0 | −0.05 |
 
 
 _Average latency per tier (seconds, lower is better)._
@@ -395,8 +394,6 @@ _Average latency per tier (seconds, lower is better)._
 | --- | --- | --- | --- | --- |
 | gpt-image-2 | 175.2s | 167.8s | 155.1s | −20.1s |
 | flux-2-pro | 29.0s | 32.5s | 16.6s | −12.4s |
-| MAI-Image-2 | 47.9s | 42.3s | 40.8s | −7.2s |
-| MAI-Image-2.5 | 54.0s | 49.4s | 47.7s | −6.4s |
 
 #### How we evaluate — the 13 quality dimensions
 
@@ -457,9 +454,9 @@ _Detail-retention axes (most important for edits) are marked ★: Prompt Adheren
 
 | Model | Prompt★ | Objects★ | Count | Binding★ | Spatial | Action | Text★ | Anatomy | Physics | Color | Detail★ | Aesthetics | Style | Avg |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| gpt-image-2 | 8.2 | 8.7 | 9.2 | 9.0 | 8.6 | 8.9 | 9.7 | 8.5 | 8.2 | 8.8 | 8.3 | 8.7 | 9.0 | **8.8** |
-| flux-2-pro | 6.9 | 8.0 | 8.8 | 8.8 | 7.3 | 8.7 | 8.2 | 8.2 | 7.5 | 8.3 | 7.7 | 8.0 | 8.3 | **8.0** |
-| MAI-Image-2.5 | 8.5 | 9.0 | 9.6 | 9.5 | 8.7 | 9.3 | 9.4 | 8.8 | 8.5 | 9.1 | 8.6 | 9.1 | 9.3 | **9.0** |
+| gpt-image-2 | 8.5 | 8.8 | 9.5 | 9.0 | 8.5 | 8.8 | 9.8 | 8.8 | 8.2 | 8.8 | 8.5 | 8.8 | 9.5 | **8.9** |
+| flux-2-pro | 6.5 | 8.5 | 9.2 | 9.0 | 7.2 | 8.2 | 7.8 | 8.5 | 7.5 | 8.8 | 7.8 | 8.0 | 8.5 | **8.1** |
+| MAI-Image-2.5 | 8.7 | 9.3 | 10.0 | 9.3 | 8.7 | 9.0 | 9.7 | 9.0 | 8.3 | 9.0 | 8.7 | 9.0 | 9.0 | **9.0** |
 
 #### Latency & cost
 

@@ -134,6 +134,22 @@ QUALITY_ORDER = ["low", "medium", "high"]
 QUALITY_LABEL = {"low": "Low", "medium": "Medium", "high": "High"}
 QUALITY_BADGE = {"low": "#334155", "medium": "#3a2f0a", "high": "#14321f"}
 
+# Provider families that expose a real quality control the sweep can turn up:
+# gpt-image has a native ``quality`` field; flux maps the tier to steps/guidance.
+# The MAI family has no quality parameter (every tier sends an identical request),
+# so it is judged at its single native operating point and kept out of the
+# tier-scaling comparison (Proposal B).
+QUALITY_KNOB_FAMILIES = {"gpt-image", "flux"}
+QUALITY_CONTROL_LABEL = {
+    "gpt-image": "native quality field",
+    "flux": "mapped to steps/guidance",
+}
+
+
+def has_quality_knob(family: str | None) -> bool:
+    """True when the provider family exposes a quality control the sweep can vary."""
+    return (family or "").strip().lower() in QUALITY_KNOB_FAMILIES
+
 # Plot palette (color-blind friendly-ish, distinct per model).
 PALETTE = ["#2563EB", "#DC2626", "#16A34A", "#F59E0B", "#7C3AED", "#0891B2", "#DB2777", "#65A30D"]
 
@@ -297,12 +313,14 @@ def load_quality_runs(results_dir: Path) -> list[dict[str, Any]]:
         models: dict[str, Any] = {}
         for row in data.get("results", []):
             name = (row.get("model") or {}).get("name") or "?"
+            family = (row.get("model") or {}).get("family") or ""
             evaluation = row.get("evaluation") or {}
             metrics = row.get("metrics") or {}
             generation = row.get("generation") or {}
             cv = row.get("cv") or {}
             img_rel = row.get("imagePath")
             models[name] = {
+                "family": family,
                 "overall": evaluation.get("overall_score"),
                 "dims": _dim_scores(evaluation),
                 "strengths": evaluation.get("strengths") or [],
@@ -614,6 +632,32 @@ def tiers_present(runs: list[dict[str, Any]]) -> list[str]:
     return [t for t in QUALITY_ORDER if t in seen]
 
 
+def model_family_map(runs: list[dict[str, Any]]) -> dict[str, str]:
+    """Map each model name to its provider family (gpt-image / flux / mai)."""
+    families: dict[str, str] = {}
+    for run in runs:
+        for name, row in run["models"].items():
+            fam = (row.get("family") or "").strip().lower()
+            if fam and name not in families:
+                families[name] = fam
+    return families
+
+
+def best_effort_runs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Subset of runs at the highest quality tier present (each model's best effort).
+
+    When the export is untiered or only one tier was swept (e.g. a single run
+    exported from the UI portal), this is an identity that returns every run, so
+    the headline aggregate is unchanged from the original report behaviour.
+    """
+    tiers = tiers_present(runs)
+    if len(tiers) < 2:
+        return runs
+    top = tiers[-1]  # QUALITY_ORDER is low->high, so the last present tier is best
+    subset = [r for r in runs if r.get("quality") == top]
+    return subset or runs
+
+
 def quality_scaling(runs: list[dict[str, Any]], order: list[str],
                     excluded: set[str] | None = None) -> dict[str, Any]:
     """How each model's average score and latency change across quality tiers.
@@ -873,14 +917,17 @@ def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str]
     )
 
 
-def _quality_narrative(agg: dict, ranked: list[str], noun_plural: str) -> str:
+def _quality_narrative(agg: dict, ranked: list[str], noun_plural: str,
+                       multi_tier: bool = False) -> str:
     scored = [(m, agg["models"][m]["overall_avg"]) for m in ranked
               if isinstance(agg["models"][m]["overall_avg"], (int, float))]
     if not scored:
         return "No comparable scores were produced for this category."
     n = len(agg["runs"])
+    where = (f"At each model's best-effort (high) setting across {n} {noun_plural}"
+             if multi_tier else f"Across the {n} {noun_plural}")
     top_m, top_v = scored[0]
-    s = (f"Across the {n} {noun_plural}, <b>{esc(top_m)}</b> led with an average quality score of "
+    s = (f"{where}, <b>{esc(top_m)}</b> led with an average quality score of "
          f"<b>{top_v:.2f}/10</b>")
     if len(scored) > 1:
         second_m, second_v = scored[1]
@@ -889,7 +936,11 @@ def _quality_narrative(agg: dict, ranked: list[str], noun_plural: str) -> str:
         last_m, last_v = scored[-1]
         s += (f"; {esc(last_m)} trailed at {last_v:.2f}, a {top_v - last_v:.2f}-point spread "
               "from top to bottom")
-    return s + ". The leaderboard below ranks every comparable model; the detailed breakdown follows."
+    tail = (". The leaderboard below ranks every comparable model at its best effort; the "
+            "quality-tier breakdown that follows shows how the models that expose a quality control "
+            "respond as the knob is turned up." if multi_tier else
+            ". The leaderboard below ranks every comparable model; the detailed breakdown follows.")
+    return s + tail
 
 
 def _fmt_secs(v: Any) -> str:
@@ -905,22 +956,38 @@ def _signed(v: Any, unit: str = "") -> str:
 
 
 def render_quality_scaling(scaling: dict, comp: list[str], colors: dict[str, str],
-                           noun_plural: str) -> str:
-    """HTML: per-model average score & latency across the low/medium/high tiers."""
+                           noun_plural: str, family_map: dict[str, str] | None = None) -> str:
+    """HTML: per-model average score & latency across the low/medium/high tiers.
+
+    Only models that expose a quality control (GPT-Image's native field, FLUX's
+    steps/guidance mapping) appear here. MAI-Image has no quality parameter — its
+    tiers are identical requests — so it is judged at its single native operating
+    point in the leaderboard above and omitted from this scaling view.
+    """
+    family_map = family_map or {}
     tiers = scaling["tiers"]
     if len(tiers) < 2:
         return ""  # nothing to compare — a single tier was swept
+    knob = [m for m in comp if has_quality_knob(family_map.get(m))]
+    knob_lat = [m for m in scaling["order"] if has_quality_knob(family_map.get(m))]
+    fixed = [m for m in scaling["order"] if not has_quality_knob(family_map.get(m))]
+    if not knob:
+        return ""
     out = ['<h3>Quality-tier scaling — low → medium → high</h3>']
-    out.append('<p class="legend">Each model ran the same '
-               f'{noun_plural} at every quality tier the sweep covered. This shows whether turning the '
-               'quality knob up actually moves the score (GPT-Image honors the tier; FLUX maps it to '
-               'steps/guidance; the MAI models largely ignore it) and what it costs in latency. '
-               'Δ is the high-minus-low change.</p>')
+    out.append('<p class="legend">How each model that exposes a quality control responds as the knob '
+               'is turned up (GPT-Image has a native quality field; FLUX maps the tier to '
+               'steps/guidance). Δ is the high-minus-low change.</p>')
+    if fixed:
+        names = ", ".join(esc(m) for m in fixed)
+        out.append('<div class="callout"><b>Not shown here:</b> '
+                   f'{names} — the MAI-Image family exposes no quality parameter, so every tier sends '
+                   'an identical request. It is judged at its single native operating point in the '
+                   'best-effort leaderboard above and the per-dimension views, not on this scaling axis.</div>')
     th = "".join(f'<th>{QUALITY_LABEL[t]}</th>' for t in tiers)
     # Score table.
     out.append('<div class="legend">Average quality score per tier (0–10, higher is better)</div>')
     out.append(f'<table><tr><th class="label">Model</th>{th}<th>Δ score</th></tr>')
-    for m in comp:
+    for m in knob:
         ms = scaling["models"][m]["tiers"]
         tds = "".join(
             f'<td class="score" style="background:{score_color(ms.get(t, {}).get("score"))}">'
@@ -934,7 +1001,7 @@ def render_quality_scaling(scaling: dict, comp: list[str], colors: dict[str, str
     out.append('<div class="legend" style="margin-top:14px">Average latency per tier '
                '(seconds, lower is better)</div>')
     out.append(f'<table><tr><th class="label">Model</th>{th}<th>Δ time</th></tr>')
-    for m in scaling["order"]:
+    for m in knob_lat:
         ms = scaling["models"][m]["tiers"]
         tds = "".join(f'<td>{_fmt_secs(ms.get(t, {}).get("elapsed"))}</td>' for t in tiers)
         delta = scaling["models"][m]["elapsed_delta"]
@@ -950,6 +1017,17 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
     order = agg["order"]
     comp = agg.get("comp_order") or order
     runs = agg["runs"]
+    category = "edit" if emphasize_retention else "generation"
+    multi_tier = len(tiers_present(runs)) >= 2
+    # In a multi-tier sweep, the leaderboard and per-dimension views judge every
+    # model at its best-effort (highest) tier: a model that honours the quality
+    # knob (GPT-Image) is not dragged down by its own low/medium runs, and MAI
+    # (no knob) is judged at its single native operating point. A single-run /
+    # single-tier export (e.g. one run from the UI portal) falls through to the
+    # original all-runs aggregate, so the simpler report format is unchanged.
+    head = aggregate_quality(best_effort_runs(runs), category) if multi_tier else agg
+    head_order = head["order"]
+    head_comp = head.get("comp_order") or head_order
     cls = f' class="{title_class}"' if title_class else ""
     heading = f'<{title_tag} id="{anchor}"{cls}>{esc(title)}</{title_tag}>'
     if not order:
@@ -957,24 +1035,33 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
     out = [heading]
 
     # Ranking used by both the narrative and the leaderboard.
-    ranked = sorted(comp, key=lambda m: (agg["models"][m]["overall_avg"] is None,
-                                          -(agg["models"][m]["overall_avg"] or 0)))
+    ranked = sorted(head_comp, key=lambda m: (head["models"][m]["overall_avg"] is None,
+                                              -(head["models"][m]["overall_avg"] or 0)))
     noun = "edit scenario" if emphasize_retention else "generation theme"
     noun_plural = "edit scenarios" if emphasize_retention else "generation themes"
 
     # 1) Describe the result first: a short narrative + the leaderboard.
     out.append("<h3>Results at a glance</h3>")
-    out.append(f'<p class="sub">{_quality_narrative(agg, ranked, noun_plural)}</p>')
-    max_overall = max([agg["models"][m]["overall_avg"] or 0 for m in comp] + [10])
-    bar_rows = [(m, agg["models"][m]["overall_avg"], colors[m]) for m in ranked]
-    out.append('<div class="legend">Average quality score across all '
-               f'{len(runs)} {noun_plural} (0–10, higher is better).</div>')
+    out.append(f'<p class="sub">{_quality_narrative(head, ranked, noun_plural, multi_tier)}</p>')
+    max_overall = max([head["models"][m]["overall_avg"] or 0 for m in head_comp] + [10])
+    bar_rows = [(m, head["models"][m]["overall_avg"], colors[m]) for m in ranked]
+    if multi_tier:
+        out.append('<div class="legend">Average quality score with each model at its '
+                   f'<b>best-effort (high) setting</b> — {len(best_effort_runs(runs))} {noun_plural} '
+                   '(0–10, higher is better). GPT-Image runs at <code>quality=high</code>, FLUX at its '
+                   'high steps/guidance preset, and MAI-Image at its single native operating point.</div>')
+    else:
+        out.append('<div class="legend">Average quality score across all '
+                   f'{len(runs)} {noun_plural} (0–10, higher is better).</div>')
     out.append(svg_hbars(bar_rows, max_val=max(10, max_overall)))
 
-    # 1b) Quality-tier scaling — how the low/medium/high knob moves each model.
+    # 1b) Quality-tier scaling — how the low/medium/high knob moves each model
+    # that exposes one. Renders only in multi-tier sweeps; MAI is omitted because
+    # it has no quality parameter (see render_quality_scaling).
     excluded_set = {m for m in order if agg["models"][m]["excluded"]}
     scaling = quality_scaling(runs, order, excluded_set)
-    out.append(render_quality_scaling(scaling, comp, colors, noun_plural))
+    out.append(render_quality_scaling(scaling, comp, colors, noun_plural,
+                                      model_family_map(runs)))
 
     # 2) Explain how the score is built — the evaluation dimensions.
     out.append(f"<h3>How we evaluate — the {len(DIM_KEYS)} quality dimensions</h3>")
@@ -1049,34 +1136,34 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
             'image, not an edit of the source.</div>'
         )
 
-    # Dimension heatmap (comparison models only).
+    # Dimension heatmap (best-effort aggregate, comparison models only).
     dims_focus = DIM_KEYS
     out.append("<h3>Dimension heatmap — average score per benchmark axis</h3>")
     if emphasize_retention:
         out.append('<p class="legend">Detail-retention axes (most important for edits) are marked ★: '
                    + ", ".join(DIM_LABELS[k] for k in RETENTION_DIMS) + ".</p>")
-    head = "".join(
+    dim_head = "".join(
         f'<th>{esc(DIM_SHORT[k])}{"★" if emphasize_retention and k in RETENTION_DIMS else ""}</th>'
         for k in dims_focus
     )
-    out.append(f'<table><tr><th class="label">Model</th>{head}<th>Avg</th></tr>')
-    for m in comp:
-        dim_avg = agg["models"][m]["dim_avg"]
+    out.append(f'<table><tr><th class="label">Model</th>{dim_head}<th>Avg</th></tr>')
+    for m in head_comp:
+        dim_avg = head["models"][m]["dim_avg"]
         tds = "".join(
             f'<td style="background:{score_color(dim_avg.get(k))}">{fmt(dim_avg.get(k))}</td>'
             for k in dims_focus
         )
-        ov = agg["models"][m]["overall_avg"]
+        ov = head["models"][m]["overall_avg"]
         out.append(f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>'
                    f'{esc(m)}</td>{tds}<td class="score" style="background:{score_color(ov)}">{fmt(ov)}</td></tr>')
     out.append("</table>")
 
-    # Radars (comparison models only).
+    # Radars (best-effort aggregate, comparison models only).
     out.append("<h3>Dimension profiles</h3>")
     radars = []
-    for m in comp:
+    for m in head_comp:
         radars.append(
-            f'<figure>{svg_radar([(m, agg["models"][m]["dim_avg"], colors[m])])}'
+            f'<figure>{svg_radar([(m, head["models"][m]["dim_avg"], colors[m])])}'
             f'<figcaption><span class="swatch" style="background:{colors[m]}"></span>{esc(m)}</figcaption></figure>'
         )
     out.append(f'<div class="radarwrap">{"".join(radars)}</div>')
@@ -1559,9 +1646,10 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
     if len(_swept) > 1:
         _tier_phrase = ("the sweep ran every theme at <b>"
                         + " → ".join(QUALITY_LABEL[t].lower() for t in _swept)
-                        + "</b> quality, so the leaderboard below blends all tiers and the "
-                        '<b>Quality-tier scaling</b> table in each subsection isolates how the knob moves '
-                        "each model. ")
+                        + "</b> quality. The leaderboard below judges every model at its <b>best-effort "
+                        "(high)</b> setting — so a model that honours the quality knob isn\'t dragged down "
+                        "by its own low/medium runs — and the <b>Quality-tier scaling</b> table in each "
+                        "subsection isolates how the knob moves each model that exposes one. ")
     else:
         _tier_phrase = ('every request was sent at <code>quality="high"</code> so each model is judged on '
                         "its best-effort output. ")
@@ -1719,14 +1807,17 @@ def _md_prompt_details(prompt: str) -> str:
             "```text\n" + body + "\n```\n\n</details>\n")
 
 
-def _md_quality_narrative(agg: dict, ranked: list[str], noun_plural: str) -> str:
+def _md_quality_narrative(agg: dict, ranked: list[str], noun_plural: str,
+                          multi_tier: bool = False) -> str:
     scored = [(m, agg["models"][m]["overall_avg"]) for m in ranked
               if isinstance(agg["models"][m]["overall_avg"], (int, float))]
     if not scored:
         return "No comparable scores were produced for this category."
     n = len(agg["runs"])
+    where = (f"At each model's best-effort (high) setting across {n} {noun_plural}"
+             if multi_tier else f"Across the {n} {noun_plural}")
     top_m, top_v = scored[0]
-    s = (f"Across the {n} {noun_plural}, **{md_text(top_m)}** led with an average quality score of "
+    s = (f"{where}, **{md_text(top_m)}** led with an average quality score of "
          f"**{top_v:.2f}/10**")
     if len(scored) > 1:
         s += f", ahead of {md_text(scored[1][0])} ({scored[1][1]:.2f})"
@@ -1734,7 +1825,11 @@ def _md_quality_narrative(agg: dict, ranked: list[str], noun_plural: str) -> str
         last_m, last_v = scored[-1]
         s += (f"; {md_text(last_m)} trailed at {last_v:.2f}, a {top_v - last_v:.2f}-point spread "
               "from top to bottom")
-    return s + ". The leaderboard below ranks every comparable model; the detailed breakdown follows."
+    tail = (". The leaderboard below ranks every comparable model at its best effort; the quality-tier "
+            "breakdown that follows shows how the models that expose a quality control respond as the "
+            "knob is turned up." if multi_tier else
+            ". The leaderboard below ranks every comparable model; the detailed breakdown follows.")
+    return s + tail
 
 
 def md_scorecard(gen: dict, edit: dict, safety: dict, ref: dict, latency: dict) -> str:
@@ -1787,20 +1882,36 @@ def md_scorecard(gen: dict, edit: dict, safety: dict, ref: dict, latency: dict) 
     return "\n".join(out) + "\n"
 
 
-def md_quality_scaling(scaling: dict, comp: list[str], noun_plural: str) -> list[str]:
-    """Markdown: per-model average score & latency across the low/medium/high tiers."""
+def md_quality_scaling(scaling: dict, comp: list[str], noun_plural: str,
+                       family_map: dict[str, str] | None = None) -> list[str]:
+    """Markdown: per-model average score & latency across the low/medium/high tiers.
+
+    Only knob-capable models (GPT-Image, FLUX) appear; MAI-Image has no quality
+    parameter and is judged at its single native point in the leaderboard instead.
+    """
+    family_map = family_map or {}
     tiers = scaling["tiers"]
     if len(tiers) < 2:
         return []
+    knob = [m for m in comp if has_quality_knob(family_map.get(m))]
+    knob_lat = [m for m in scaling["order"] if has_quality_knob(family_map.get(m))]
+    fixed = [m for m in scaling["order"] if not has_quality_knob(family_map.get(m))]
+    if not knob:
+        return []
     out = ["#### Quality-tier scaling — low → medium → high", "",
-           f"Each model ran the same {noun_plural} at every quality tier the sweep covered. This shows "
-           "whether turning the quality knob up actually moves the score (GPT-Image honors the tier; FLUX "
-           "maps it to steps/guidance; the MAI models largely ignore it) and what it costs in latency. "
+           "How each model that exposes a quality control responds as the knob is turned up "
+           "(GPT-Image has a native quality field; FLUX maps the tier to steps/guidance). "
            "Δ is the high-minus-low change.", ""]
+    if fixed:
+        names = ", ".join(md_text(m) for m in fixed)
+        out += ["> **Not shown here:** " + names + " — the MAI-Image family exposes no quality "
+                "parameter, so every tier sends an identical request. It is judged at its single native "
+                "operating point in the best-effort leaderboard above and the per-dimension views, not "
+                "on this scaling axis.", ""]
     out.append("_Average quality score per tier (0–10, higher is better)._\n")
     headers = ["Model"] + [QUALITY_LABEL[t] for t in tiers] + ["Δ score"]
     rows = []
-    for m in comp:
+    for m in knob:
         ms = scaling["models"][m]["tiers"]
         row = [md_cell(m)] + [fmt(ms.get(t, {}).get("score")) for t in tiers]
         row.append(_md_signed(scaling["models"][m]["score_delta"]))
@@ -1809,7 +1920,7 @@ def md_quality_scaling(scaling: dict, comp: list[str], noun_plural: str) -> list
     out.append("\n_Average latency per tier (seconds, lower is better)._\n")
     headers_t = ["Model"] + [QUALITY_LABEL[t] for t in tiers] + ["Δ time"]
     rows_t = []
-    for m in scaling["order"]:
+    for m in knob_lat:
         ms = scaling["models"][m]["tiers"]
         row = [md_cell(m)] + [_md_secs(ms.get(t, {}).get("elapsed")) for t in tiers]
         row.append(_md_signed(scaling["models"][m]["elapsed_delta"], "s"))
@@ -1836,30 +1947,43 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
     order = agg["order"]
     comp = agg.get("comp_order") or order
     runs = agg["runs"]
+    category = "edit" if emphasize_retention else "generation"
+    multi_tier = len(tiers_present(runs)) >= 2
+    head = aggregate_quality(best_effort_runs(runs), category) if multi_tier else agg
+    head_order = head["order"]
+    head_comp = head.get("comp_order") or head_order
     out = [f"### {title}", ""]
     if not order:
         out.append(f"_No {title.lower()} runs found._\n")
         return "\n".join(out) + "\n"
 
-    ranked = sorted(comp, key=lambda m: (agg["models"][m]["overall_avg"] is None,
-                                         -(agg["models"][m]["overall_avg"] or 0)))
+    ranked = sorted(head_comp, key=lambda m: (head["models"][m]["overall_avg"] is None,
+                                              -(head["models"][m]["overall_avg"] or 0)))
     noun = "edit scenario" if emphasize_retention else "generation theme"
     noun_plural = "edit scenarios" if emphasize_retention else "generation themes"
 
     # 1) Results at a glance — narrative + leaderboard.
-    out += ["#### Results at a glance", "", _md_quality_narrative(agg, ranked, noun_plural), ""]
-    out.append(f"_Average quality score across all {len(runs)} {noun_plural} (0–10, higher is better)._\n")
+    out += ["#### Results at a glance", "",
+            _md_quality_narrative(head, ranked, noun_plural, multi_tier), ""]
+    if multi_tier:
+        out.append(f"_Average quality score with each model at its **best-effort (high) setting** — "
+                   f"{len(best_effort_runs(runs))} {noun_plural} (0–10, higher is better). GPT-Image runs "
+                   "at `quality=high`, FLUX at its high steps/guidance preset, and MAI-Image at its single "
+                   "native operating point._\n")
+    else:
+        out.append(f"_Average quality score across all {len(runs)} {noun_plural} "
+                   "(0–10, higher is better)._\n")
     lb_rows = []
     for i, m in enumerate(ranked, 1):
-        v = agg["models"][m]["overall_avg"]
+        v = head["models"][m]["overall_avg"]
         vtxt = f"**{fmt(v)}**" if i == 1 else fmt(v)
-        lb_rows.append([str(i), md_cell(m), vtxt, str(agg["models"][m]["n_runs"])])
+        lb_rows.append([str(i), md_cell(m), vtxt, str(head["models"][m]["n_runs"])])
     out.append(md_table(["Rank", "Model", "Avg quality (0–10)", "Runs"], lb_rows))
 
-    # 1b) Quality-tier scaling.
+    # 1b) Quality-tier scaling (knob-capable models only; MAI omitted).
     excluded_set = {m for m in order if agg["models"][m]["excluded"]}
     scaling = quality_scaling(runs, order, excluded_set)
-    scale_md = md_quality_scaling(scaling, comp, noun_plural)
+    scale_md = md_quality_scaling(scaling, comp, noun_plural, model_family_map(runs))
     if scale_md:
         out += [""] + scale_md
 
@@ -1932,10 +2056,10 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
     hm_headers = ["Model"] + [DIM_SHORT[k] + ("★" if emphasize_retention and k in RETENTION_DIMS else "")
                               for k in DIM_KEYS] + ["Avg"]
     hm_rows = []
-    for m in comp:
-        dim_avg = agg["models"][m]["dim_avg"]
+    for m in head_comp:
+        dim_avg = head["models"][m]["dim_avg"]
         row = [md_cell(m)] + [fmt(dim_avg.get(k)) for k in DIM_KEYS]
-        row.append(f"**{fmt(agg['models'][m]['overall_avg'])}**")
+        row.append(f"**{fmt(head['models'][m]['overall_avg'])}**")
         hm_rows.append(row)
     out.append(md_table(hm_headers, hm_rows))
 
@@ -2292,8 +2416,10 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
     if len(_swept) > 1:
         _tier_phrase = ("The sweep ran every theme at **"
                         + " → ".join(QUALITY_LABEL[t].lower() for t in _swept)
-                        + "** quality, so the leaderboard below blends all tiers and the **Quality-tier "
-                        "scaling** table in each subsection isolates how the knob moves each model. ")
+                        + "** quality. The leaderboard below judges every model at its **best-effort "
+                        "(high)** setting — so a model that honours the quality knob isn't dragged down by "
+                        "its own low/medium runs — and the **Quality-tier scaling** table in each "
+                        "subsection isolates how the knob moves each model that exposes one. ")
     else:
         _tier_phrase = ('Every request was sent at `quality="high"` so each model is judged on its '
                         "best-effort output. ")
