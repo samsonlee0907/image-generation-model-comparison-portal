@@ -1413,8 +1413,11 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
     parts.append('<p class="sub">Every image-generation request in this test set was sent at '
                  '<code>quality="high"</code> so each model is judged on its best-effort output. Models whose '
                  'API exposes a quality tier (the GPT-Image API) take longer to render and bill more '
-                 'image-output tokens at <code>high</code>; FLUX and the MAI models do not accept the '
-                 'parameter and are unaffected by it.'
+                 'image-output tokens at <code>high</code>. FLUX and the MAI models don\'t take this enum, '
+                 'but they have their own fidelity controls — FLUX exposes inference <b>steps</b>, '
+                 '<b>guidance</b> scale and <b>prompt-upsampling</b>, and for both, output <b>resolution</b> '
+                 'is the main quality lever — which the portal leaves at each deployment\'s defaults. So those '
+                 'two run at default fidelity here while GPT-Image is explicitly pinned to <code>high</code>.'
                  + (f' Deeper dive: {_ql_link} — how the 13 dimensions are defined and scored.'
                     if _ql_link else "") + '</p>')
     parts.append(render_quality_section(gen, colors, "Text-to-image generation", "generation",
@@ -2041,8 +2044,12 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
     _ql_link = _doc_link_md(ref, "image_quality")
     out.append('Every image-generation request in this test set was sent at `quality="high"` so each model '
                "is judged on its best-effort output. Models whose API exposes a quality tier (the GPT-Image "
-               "API) take longer to render and bill more image-output tokens at `high`; FLUX and the MAI "
-               "models do not accept the parameter and are unaffected by it."
+               "API) take longer to render and bill more image-output tokens at `high`. FLUX and the MAI "
+               "models don't take this enum, but they have their own fidelity controls — FLUX exposes "
+               "inference **steps**, **guidance** scale and **prompt-upsampling**, and for both, output "
+               "**resolution** is the main quality lever — which the portal leaves at each deployment's "
+               "defaults. So those two run at default fidelity here while GPT-Image is explicitly pinned to "
+               "`high`."
                + (f" Deeper dive: {_ql_link} — how the 13 dimensions are defined and scored."
                   if _ql_link else "") + "\n")
     out.append(md_quality_section(gen, "Text-to-image generation", "generation", False, assets))

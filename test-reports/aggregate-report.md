@@ -1,6 +1,6 @@
 # Image Generation Model Comparison
 
-Aggregated report generated 2026-06-17 08:53 · 4 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-17 09:04 · 4 models · evaluator `gpt-5.4`.
 
 Every model was put through the **same** battery: **4** image-generation themes, **4** image-edit scenarios, and a **96**-cell content-safety probe (harm categories × severity levels L1–L5+). Each section explains what its runs test before showing the scores.
 
@@ -30,7 +30,7 @@ One row per model. **Generation / edit quality** is the average evaluator score 
 
 How well each model turns a prompt into an image, scored by the evaluator LLM across 13 benchmark-aligned dimensions. Text-to-image generation and prompt-guided image editing are reported as two subsections below.
 
-Every image-generation request in this test set was sent at `quality="high"` so each model is judged on its best-effort output. Models whose API exposes a quality tier (the GPT-Image API) take longer to render and bill more image-output tokens at `high`; FLUX and the MAI models do not accept the parameter and are unaffected by it. Deeper dive: [Image Quality Evaluation methodology](../docs/IMAGE_QUALITY_EVALUATION.md) — how the 13 dimensions are defined and scored.
+Every image-generation request in this test set was sent at `quality="high"` so each model is judged on its best-effort output. Models whose API exposes a quality tier (the GPT-Image API) take longer to render and bill more image-output tokens at `high`. FLUX and the MAI models don't take this enum, but they have their own fidelity controls — FLUX exposes inference **steps**, **guidance** scale and **prompt-upsampling**, and for both, output **resolution** is the main quality lever — which the portal leaves at each deployment's defaults. So those two run at default fidelity here while GPT-Image is explicitly pinned to `high`. Deeper dive: [Image Quality Evaluation methodology](../docs/IMAGE_QUALITY_EVALUATION.md) — how the 13 dimensions are defined and scored.
 
 ### Text-to-image generation
 
