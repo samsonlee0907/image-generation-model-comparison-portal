@@ -1113,9 +1113,24 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
     out.append("<h3>Per-run scores</h3>")
     tiers = tiers_present(runs)
     grouped = bool(tiers) and any(r.get("quality") for r in runs)
+    # No-knob families (MAI) send an identical request at every tier and may be
+    # generated only once by the sweep. Reuse their single best-effort score in
+    # every tier so the table never shows a confusing blank, marked "(native)".
+    fam = model_family_map(runs)
+    fixed_models = {m for m in order if not has_quality_knob(fam.get(m))}
+    rep_run: dict[tuple, dict] = {}
+    if grouped and fixed_models:
+        for r in best_effort_runs(runs):
+            for m in fixed_models:
+                rm = r["models"].get(m)
+                if rm and isinstance(rm.get("overall"), (int, float)):
+                    rep_run[(m, r["title"])] = rm
     if grouped:
         out.append('<p class="legend">Grouped by quality tier so the same '
-                   f'{noun} can be compared as the quality knob is turned up.</p>')
+                   f'{noun} can be compared as the quality knob is turned up.'
+                   + (' Cells marked <i>(native)</i> reuse a no-knob model\'s single operating '
+                      'point across tiers and are excluded from the per-row winner.'
+                      if fixed_models else "") + '</p>')
     tier_groups = [(t, [r for r in runs if r.get("quality") == t]) for t in tiers] if grouped \
         else [("", runs)]
     if grouped:
@@ -1131,9 +1146,19 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
         out.append('<div class="scroll"><table class="bymodel"><tr><th class="label">Run</th>'
                    + "".join(f'<th>{esc(m)}</th>' for m in order) + "</tr>")
         for run in truns:
-            cells_vals = {m: run["models"].get(m, {}).get("overall") for m in order}
+            cells_vals: dict = {}
+            native_flag: dict = {}
+            for m in order:
+                v = run["models"].get(m, {}).get("overall")
+                if v is None and grouped and tier and m in fixed_models:
+                    rep = rep_run.get((m, run["title"]))
+                    if rep is not None:
+                        v = rep.get("overall")
+                        native_flag[m] = True
+                cells_vals[m] = v
             nums = {m: v for m, v in cells_vals.items()
-                    if isinstance(v, (int, float)) and not agg["models"][m]["excluded"]}
+                    if isinstance(v, (int, float)) and not agg["models"][m]["excluded"]
+                    and not native_flag.get(m)}
             best_m = max(nums, key=nums.get) if nums else None
             tds = []
             for m in order:
@@ -1143,7 +1168,10 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
                 v = cells_vals[m]
                 fb = run["models"].get(m, {}).get("fallback")
                 cls = "score win" if m == best_m else "score"
-                tag = ' <span class="muted small">(fb)</span>' if fb else ""
+                if native_flag.get(m):
+                    tag = ' <span class="muted small">(native)</span>'
+                else:
+                    tag = ' <span class="muted small">(fb)</span>' if fb else ""
                 tds.append(f'<td class="{cls}" style="background:{score_color(v)}">{fmt(v)}{tag}</td>')
             out.append(f'<tr><td class="label">{esc(run["title"])}</td>' + "".join(tds) + "</tr>")
         out.append("</table></div>")
@@ -2068,9 +2096,20 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
     out += ["#### Per-run scores", ""]
     tiers = tiers_present(runs)
     grouped = bool(tiers) and any(r.get("quality") for r in runs)
+    fam = model_family_map(runs)
+    fixed_models = {m for m in order if not has_quality_knob(fam.get(m))}
+    rep_run: dict[tuple, dict] = {}
+    if grouped and fixed_models:
+        for r in best_effort_runs(runs):
+            for m in fixed_models:
+                rm = r["models"].get(m)
+                if rm and isinstance(rm.get("overall"), (int, float)):
+                    rep_run[(m, r["title"])] = rm
     if grouped:
         out.append(f"_Grouped by quality tier so the same {noun} can be compared as the quality knob is "
-                   "turned up._\n")
+                   "turned up."
+                   + (" Cells marked _(native)_ reuse a no-knob model's single operating point across "
+                      "tiers and are excluded from the per-row winner." if fixed_models else "") + "_\n")
     tier_groups = [(t, [r for r in runs if r.get("quality") == t]) for t in tiers] if grouped \
         else [("", runs)]
     if grouped:
@@ -2084,17 +2123,30 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
             out += [f"**{QUALITY_LABEL[tier]} quality**", ""]
         pr_rows = []
         for run in truns:
-            cells_vals = {m: run["models"].get(m, {}).get("overall") for m in order}
+            cells_vals: dict = {}
+            native_flag: dict = {}
+            for m in order:
+                v = run["models"].get(m, {}).get("overall")
+                if v is None and grouped and tier and m in fixed_models:
+                    rep = rep_run.get((m, run["title"]))
+                    if rep is not None:
+                        v = rep.get("overall")
+                        native_flag[m] = True
+                cells_vals[m] = v
             nums = {m: v for m, v in cells_vals.items()
-                    if isinstance(v, (int, float)) and not agg["models"][m]["excluded"]}
+                    if isinstance(v, (int, float)) and not agg["models"][m]["excluded"]
+                    and not native_flag.get(m)}
             best_m = max(nums, key=nums.get) if nums else None
             row = [md_cell(run["title"])]
             for m in order:
                 if agg["models"][m]["excluded"]:
                     row.append("N/A")
                     continue
-                fb = " (fb)" if run["models"].get(m, {}).get("fallback") else ""
-                cell = f"{fmt(cells_vals[m])}{fb}"
+                if native_flag.get(m):
+                    suffix = " (native)"
+                else:
+                    suffix = " (fb)" if run["models"].get(m, {}).get("fallback") else ""
+                cell = f"{fmt(cells_vals[m])}{suffix}"
                 row.append(f"**{cell}**" if m == best_m else cell)
             pr_rows.append(row)
         out.append(md_table(["Run"] + [md_cell(m) for m in order], pr_rows))

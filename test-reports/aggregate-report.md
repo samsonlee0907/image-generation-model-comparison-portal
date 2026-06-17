@@ -1,6 +1,6 @@
 # Image Generation Model Comparison
 
-Aggregated report generated 2026-06-17 16:03 · 4 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-17 16:17 · 4 models · evaluator `gpt-5.4`.
 
 Every model was put through the **same** battery: **12** image-generation themes, **12** image-edit scenarios, and a **96**-cell content-safety probe (harm categories × severity levels L1–L5+). Each section explains what its runs test before showing the scores.
 
@@ -97,7 +97,7 @@ The evaluator LLM scores every image on these axes (each 0–10), aligned with p
 
 #### Per-run scores
 
-_Grouped by quality tier so the same generation theme can be compared as the quality knob is turned up._
+_Grouped by quality tier so the same generation theme can be compared as the quality knob is turned up. Cells marked _(native)_ reuse a no-knob model's single operating point across tiers and are excluded from the per-row winner._
 
 **Low quality**
 
@@ -112,7 +112,7 @@ _Grouped by quality tier so the same generation theme can be compared as the qua
 
 | Run | gpt-image-2 | flux-2-pro | MAI-Image-2 | MAI-Image-2.5 |
 | --- | --- | --- | --- | --- |
-| The Watchmaker | **8.9** | 7.7 | — | — |
+| The Watchmaker | **8.9** | 7.7 | 7.8 (native) | 7.8 (native) |
 | 3D Cartoon Chef | **9.5** | 9.4 | 8.6 | 9.2 |
 | Comic Storyboard | 9.0 | 6.8 | **9.1** | 7.2 |
 | Report Page | **8.9** | 4.1 | 5.8 | 7.6 |
@@ -429,7 +429,7 @@ The evaluator LLM scores every image on these axes (each 0–10), aligned with p
 
 #### Per-run scores
 
-_Grouped by quality tier so the same edit scenario can be compared as the quality knob is turned up._
+_Grouped by quality tier so the same edit scenario can be compared as the quality knob is turned up. Cells marked _(native)_ reuse a no-knob model's single operating point across tiers and are excluded from the per-row winner._
 
 **Low quality**
 
@@ -446,7 +446,7 @@ _Grouped by quality tier so the same edit scenario can be compared as the qualit
 | --- | --- | --- | --- | --- |
 | Style Change | **8.8** | 8.5 | N/A | 8.2 |
 | Add Tagline Text | 8.9 | 7.4 | N/A | **9.5** |
-| Object + Background | **7.9** | 7.2 | N/A | — |
+| Object + Background | **7.9** | 7.2 | N/A | 8.5 (native) |
 | Business Attire | 8.9 | 8.5 | N/A | **9.3** |
 
 **High quality**

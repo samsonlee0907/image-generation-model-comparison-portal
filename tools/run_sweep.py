@@ -11,6 +11,12 @@ the four image-edit scenarios; the content-safety battery is run once (its
 prompts do not depend on the image quality tier). Each run is exported into the
 matching ``portal-exports/<generation|edit|safety>/`` sub-folder.
 
+Models whose routing family exposes no quality control (e.g. MAI-Image) send a
+byte-identical request at every tier, so the sweep generates them only **once** —
+at the best-effort (highest requested) tier, which is where the aggregated report
+judges every model — instead of redundantly re-generating them for each tier.
+Models with a quality knob (GPT-Image, FLUX) are swept across all tiers.
+
 Usage::
 
     python tools/run_sweep.py                      # low, medium, high + edits + safety
@@ -54,8 +60,18 @@ EDIT_PRESETS = [
 ]
 QUALITY_ALIASES = {"mid": "medium", "med": "medium"}
 VALID_QUALITIES = ("low", "medium", "high")
+QUALITY_RANK = {"low": 0, "medium": 1, "high": 2}
+# Families that expose a quality control the sweep can turn up tier-by-tier.
+# Mirrors QUALITY_KNOB_FAMILIES in tools/aggregate_report.py. Families NOT listed
+# here (e.g. MAI-Image) send an identical request at every tier, so the sweep
+# generates them only once instead of once per tier.
+QUALITY_KNOB_FAMILIES = {"gpt-image", "flux"}
 DEFAULT_REFERENCE = REPO_ROOT / "test-reports" / "results" / "ImageEditTest" / "ReferenceImage.png"
 DEFAULT_POLL_TIMEOUT = 1200  # seconds per run
+
+
+def _has_quality_knob(model: dict) -> bool:
+    return (model.get("family") or "").strip() in QUALITY_KNOB_FAMILIES
 
 
 def _normalize_quality(value: str) -> str:
@@ -148,20 +164,35 @@ def _run_safety(runs: RunManager, config: AppConfig, models: list[dict], timeout
     return runs.export_results(run_id)
 
 
-def _print_plan(qualities: list[str], skip_edit: bool, skip_safety: bool, model_names: list[str]) -> None:
+def _print_plan(qualities: list[str], skip_edit: bool, skip_safety: bool,
+                models: list[dict], best_tier: str | None, multi_tier: bool) -> None:
+    def names(subset: list[dict]) -> str:
+        return ", ".join(m.get("name") or m.get("deployment") or "model" for m in subset) or "(none)"
+
+    knob = [m for m in models if _has_quality_knob(m)]
+    fixed = [m for m in models if not _has_quality_knob(m)]
     print("Sweep plan")
-    print(f"  Models      : {', '.join(model_names)}")
+    print(f"  Models      : {names(models)}")
     print(f"  Qualities   : {', '.join(qualities)}")
-    gen = len(qualities) * len(GENERATION_PRESETS)
-    edit = 0 if skip_edit else len(qualities) * len(EDIT_PRESETS)
-    safety = 0 if skip_safety else 1
+    if multi_tier and fixed:
+        print(f"  Quality knob: {names(knob)} - swept low->high")
+        print(f"  No knob      : {names(fixed)} - generated once at '{best_tier}' (identical request per tier)")
+    gen_cells = 0
+    edit_cells = 0
     for quality in qualities:
-        print(f"  [{quality}] generation: {', '.join(GENERATION_PRESETS)}")
+        members = models if (not multi_tier or quality == best_tier) else knob
+        if not members:
+            print(f"  [{quality}] generation: (skipped — no models with a quality knob)")
+            continue
+        gen_cells += len(GENERATION_PRESETS) * len(members)
+        print(f"  [{quality}] generation: {', '.join(GENERATION_PRESETS)} x [{names(members)}]")
         if not skip_edit:
-            print(f"  [{quality}] edit      : {', '.join(EDIT_PRESETS)}")
+            edit_cells += len(EDIT_PRESETS) * len(members)
+            print(f"  [{quality}] edit      : {', '.join(EDIT_PRESETS)} x [{names(members)}]")
     if not skip_safety:
         print("  safety      : full battery (run once)")
-    print(f"  Total runs  : {gen + edit + safety} ({gen} generation, {edit} edit, {safety} safety)")
+    print(f"  Image cells : {gen_cells} generation, {edit_cells} edit "
+          f"(each model that lacks a quality knob is generated once, not per tier)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -211,7 +242,20 @@ def main(argv: list[str] | None = None) -> int:
     if not models:
         print("No enabled models in the saved config. Enable at least one model first.", file=sys.stderr)
         return 2
-    model_names = [model.get("name") or model.get("deployment") or "model" for model in models]
+
+    # Split the enabled models by whether they expose a quality control. Models
+    # without one (e.g. MAI-Image) send an identical request at every tier, so we
+    # generate them only once — at the best-effort (highest requested) tier, which
+    # is where the aggregated report judges every model. Knob-capable models are
+    # swept across all requested tiers.
+    multi_tier = len(qualities) > 1
+    best_tier = max(qualities, key=lambda q: QUALITY_RANK.get(q, 0)) if qualities else None
+    knob_models = [m for m in models if _has_quality_knob(m)]
+
+    def models_for(quality: str) -> list[dict]:
+        if not multi_tier or quality == best_tier:
+            return models
+        return knob_models
 
     need_edit = not args.skip_edit
     if need_edit and not args.reference.exists():
@@ -219,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Pass --reference <path> or --skip-edit.", file=sys.stderr)
         return 2
 
-    _print_plan(qualities, args.skip_edit, args.skip_safety, model_names)
+    _print_plan(qualities, args.skip_edit, args.skip_safety, models, best_tier, multi_tier)
     if args.dry_run:
         return 0
 
@@ -231,11 +275,15 @@ def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     try:
         for quality in qualities:
+            tier_models = models_for(quality)
+            if not tier_models:
+                print(f"\n=== generation @ {quality}: skipped (no models with a quality knob) ===", flush=True)
+                continue
             for preset_key in GENERATION_PRESETS:
                 label = f"generation/{preset_key} @ {quality}"
                 print(f"\n=== {label} ===", flush=True)
                 try:
-                    result = _run_generation(runs, config, models, preset_key, quality, args.poll_timeout)
+                    result = _run_generation(runs, config, tier_models, preset_key, quality, args.poll_timeout)
                     print(f"  exported -> {result.get('folder')}")
                     exports.append(result.get("folder", ""))
                 except Exception as exc:  # noqa: BLE001 - report and continue
@@ -249,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
                         result = _run_edit(
                             runs,
                             config,
-                            models,
+                            tier_models,
                             preset_key,
                             quality,
                             reference_data_url,
