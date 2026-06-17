@@ -1,6 +1,6 @@
 # Image Generation Model Comparison
 
-Aggregated report generated 2026-06-17 15:46 · 4 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-17 16:03 · 4 models · evaluator `gpt-5.4`.
 
 Every model was put through the **same** battery: **12** image-generation themes, **12** image-edit scenarios, and a **96**-cell content-safety probe (harm categories × severity levels L1–L5+). Each section explains what its runs test before showing the scores.
 
@@ -52,7 +52,7 @@ _Average quality score with each model at its **best-effort (high) setting** —
 
 How each model that exposes a quality control responds as the knob is turned up (GPT-Image has a native quality field; FLUX maps the tier to steps/guidance). Δ is the high-minus-low change.
 
-> **Not shown here:** MAI-Image-2, MAI-Image-2.5 — the MAI-Image family exposes no quality parameter, so every tier sends an identical request. It is judged at its single native operating point in the best-effort leaderboard above and the per-dimension views, not on this scaling axis.
+> **Native, single operating point:** MAI-Image-2, MAI-Image-2.5 — the MAI-Image family exposes no quality parameter, so every tier sends an identical request. Its row shows one native value (marked †, the mean of its repeats) repeated across the tier columns; the tier-to-tier Δ is not applicable.
 
 _Average quality score per tier (0–10, higher is better)._
 
@@ -60,6 +60,8 @@ _Average quality score per tier (0–10, higher is better)._
 | --- | --- | --- | --- | --- |
 | gpt-image-2 | 8.7 | 9.1 | 9.1 | +0.40 |
 | flux-2-pro | 6.7 | 7.0 | 6.9 | +0.21 |
+| MAI-Image-2 | 7.8 † | 7.8 † | 7.8 † | — |
+| MAI-Image-2.5 | 8.1 † | 8.1 † | 8.1 † | — |
 
 
 _Average latency per tier (seconds, lower is better)._
@@ -68,7 +70,11 @@ _Average latency per tier (seconds, lower is better)._
 | --- | --- | --- | --- | --- |
 | gpt-image-2 | 28.1s | 55.2s | 145.3s | +117.2s |
 | flux-2-pro | 16.2s | 19.5s | 14.1s | −2.2s |
+| MAI-Image-2 | 27.9s † | 27.9s † | 27.9s † | — |
+| MAI-Image-2.5 | 30.0s † | 30.0s † | 30.0s † | — |
 
+
+† Native single operating point — same value shown in every tier column (no quality knob; not a low→high response).
 #### How we evaluate — the 13 quality dimensions
 
 The evaluator LLM scores every image on these axes (each 0–10), aligned with public text-to-image benchmarks (GenEval, T2I-CompBench, DPG-Bench); the overall score is their aggregate.
@@ -158,7 +164,7 @@ _Token usage is only reported by models whose API returns it._
 
 #### Result gallery
 
-_Grouped by quality tier — scan down the tiers to see how a model renders the same generation theme at low, medium and high quality._
+_Grouped by quality tier — scan down the tiers to see how a model renders the same generation theme at low, medium and high quality. Models with no quality knob (MAI-Image) show the same native image in every tier._
 
 ##### Low quality
 
@@ -175,7 +181,7 @@ A professional studio photograph of an elderly Asian watchmaker with weathered h
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-the-watchmaker-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-the-watchmaker-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-the-watchmaker-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 7.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-the-watchmaker-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 8.8</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-the-watchmaker-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-the-watchmaker-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-the-watchmaker-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 7.8 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-the-watchmaker-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.8 · native (same across tiers)</sub></td></tr></table>
 
 **3D Cartoon Chef**
 
@@ -190,7 +196,7 @@ A vibrant 3D animated cartoon scene in the polished style of a modern Pixar feat
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-3d-cartoon-chef-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-3d-cartoon-chef-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-3d-cartoon-chef-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 9.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-3d-cartoon-chef-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.3</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-3d-cartoon-chef-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-3d-cartoon-chef-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-3d-cartoon-chef-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 8.1 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-3d-cartoon-chef-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.4 · native (same across tiers)</sub></td></tr></table>
 
 **Comic Storyboard**
 
@@ -205,7 +211,7 @@ A 2D comic-book storyboard laid out as exactly four equal panels in a 2x2 grid s
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-comic-storyboard-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-comic-storyboard-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 6.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-comic-storyboard-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-comic-storyboard-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 8.5</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-comic-storyboard-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-comic-storyboard-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 6.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-comic-storyboard-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 8.7 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-comic-storyboard-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.5 · native (same across tiers)</sub></td></tr></table>
 
 **Report Page**
 
@@ -224,7 +230,7 @@ Use a clean, flat, corporate vector style with accurate proportional bar heights
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-report-page-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.2</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-report-page-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 4.6</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-report-page-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 5.6</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-report-page-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.8</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-report-page-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.2</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-low-report-page-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 4.6</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-report-page-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 6.1 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-report-page-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 6.2 · native (same across tiers)</sub></td></tr></table>
 
 ##### Medium quality
 
@@ -241,7 +247,7 @@ A professional studio photograph of an elderly Asian watchmaker with weathered h
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-the-watchmaker-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-the-watchmaker-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.7</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-the-watchmaker-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-the-watchmaker-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-the-watchmaker-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 7.8 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-the-watchmaker-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.8 · native (same across tiers)</sub></td></tr></table>
 
 **3D Cartoon Chef**
 
@@ -256,7 +262,7 @@ A vibrant 3D animated cartoon scene in the polished style of a modern Pixar feat
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-3d-cartoon-chef-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-3d-cartoon-chef-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 9.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-3d-cartoon-chef-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 8.6</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-3d-cartoon-chef-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.2</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-3d-cartoon-chef-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-3d-cartoon-chef-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 9.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-3d-cartoon-chef-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 8.1 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-3d-cartoon-chef-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.4 · native (same across tiers)</sub></td></tr></table>
 
 **Comic Storyboard**
 
@@ -271,7 +277,7 @@ A 2D comic-book storyboard laid out as exactly four equal panels in a 2x2 grid s
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-comic-storyboard-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-comic-storyboard-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 6.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-comic-storyboard-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 9.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-comic-storyboard-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.2</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-comic-storyboard-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-comic-storyboard-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 6.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-comic-storyboard-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 8.7 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-comic-storyboard-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.5 · native (same across tiers)</sub></td></tr></table>
 
 **Report Page**
 
@@ -290,7 +296,7 @@ Use a clean, flat, corporate vector style with accurate proportional bar heights
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-report-page-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-report-page-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 4.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-report-page-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 5.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-report-page-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.6</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-report-page-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-medium-report-page-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 4.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-report-page-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 6.1 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-report-page-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 6.2 · native (same across tiers)</sub></td></tr></table>
 
 ##### High quality
 
@@ -307,7 +313,7 @@ A professional studio photograph of an elderly Asian watchmaker with weathered h
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-the-watchmaker-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.6</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-the-watchmaker-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.3</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-the-watchmaker-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 7.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-the-watchmaker-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.8</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-the-watchmaker-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.6</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-the-watchmaker-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.3</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-the-watchmaker-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 7.8 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-the-watchmaker-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.8 · native (same across tiers)</sub></td></tr></table>
 
 **3D Cartoon Chef**
 
@@ -322,7 +328,7 @@ A vibrant 3D animated cartoon scene in the polished style of a modern Pixar feat
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-3d-cartoon-chef-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-3d-cartoon-chef-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 9.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-3d-cartoon-chef-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 8.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-3d-cartoon-chef-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.4</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-3d-cartoon-chef-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-3d-cartoon-chef-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 9.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-3d-cartoon-chef-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 8.1 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-3d-cartoon-chef-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.4 · native (same across tiers)</sub></td></tr></table>
 
 **Comic Storyboard**
 
@@ -337,7 +343,7 @@ A 2D comic-book storyboard laid out as exactly four equal panels in a 2x2 grid s
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-comic-storyboard-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-comic-storyboard-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 5.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-comic-storyboard-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 8.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-comic-storyboard-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.5</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-comic-storyboard-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-comic-storyboard-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 5.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-comic-storyboard-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 8.7 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-comic-storyboard-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 7.5 · native (same across tiers)</sub></td></tr></table>
 
 **Report Page**
 
@@ -356,7 +362,7 @@ Use a clean, flat, corporate vector style with accurate proportional bar heights
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-report-page-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-report-page-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 4.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-report-page-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 6.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-report-page-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 6.2</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-report-page-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-high-report-page-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 4.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-report-page-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 6.1 · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/generation-report-page-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 6.2 · native (same across tiers)</sub></td></tr></table>
 
 
 ### Prompt-guided image editing
@@ -378,7 +384,7 @@ _Average quality score with each model at its **best-effort (high) setting** —
 
 How each model that exposes a quality control responds as the knob is turned up (GPT-Image has a native quality field; FLUX maps the tier to steps/guidance). Δ is the high-minus-low change.
 
-> **Not shown here:** MAI-Image-2, MAI-Image-2.5 — the MAI-Image family exposes no quality parameter, so every tier sends an identical request. It is judged at its single native operating point in the best-effort leaderboard above and the per-dimension views, not on this scaling axis.
+> **Native, single operating point:** MAI-Image-2, MAI-Image-2.5 — the MAI-Image family exposes no quality parameter, so every tier sends an identical request. Its row shows one native value (marked †, the mean of its repeats) repeated across the tier columns; the tier-to-tier Δ is not applicable.
 
 _Average quality score per tier (0–10, higher is better)._
 
@@ -386,6 +392,8 @@ _Average quality score per tier (0–10, higher is better)._
 | --- | --- | --- | --- | --- |
 | gpt-image-2 | 8.8 | 8.6 | 8.9 | +0.13 |
 | flux-2-pro | 8.0 | 7.9 | 8.1 | ±0 |
+| MAI-Image-2 | — † | — † | — † | — |
+| MAI-Image-2.5 | 9.0 † | 9.0 † | 9.0 † | — |
 
 
 _Average latency per tier (seconds, lower is better)._
@@ -394,7 +402,11 @@ _Average latency per tier (seconds, lower is better)._
 | --- | --- | --- | --- | --- |
 | gpt-image-2 | 175.2s | 167.8s | 155.1s | −20.1s |
 | flux-2-pro | 29.0s | 32.5s | 16.6s | −12.4s |
+| MAI-Image-2 | 43.7s † | 43.7s † | 43.7s † | — |
+| MAI-Image-2.5 | 50.4s † | 50.4s † | 50.4s † | — |
 
+
+† Native single operating point — same value shown in every tier column (no quality knob; not a low→high response).
 #### How we evaluate — the 13 quality dimensions
 
 The evaluator LLM scores every image on these axes (each 0–10), aligned with public text-to-image benchmarks (GenEval, T2I-CompBench, DPG-Bench); the overall score is their aggregate. Axes marked ★ are the detail-retention axes that matter most when judging an edit.
@@ -487,7 +499,7 @@ _Token usage is only reported by models whose API returns it._
 
 #### Result gallery
 
-_Grouped by quality tier — scan down the tiers to see how a model renders the same edit scenario at low, medium and high quality._
+_Grouped by quality tier — scan down the tiers to see how a model renders the same edit scenario at low, medium and high quality. Models with no quality knob (MAI-Image) show the same native image in every tier._
 
 ##### Low quality
 
@@ -504,7 +516,7 @@ Repaint this photograph as a textured oil painting with visible brush strokes an
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-style-change-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-style-change-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.2</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-style-change-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 7.5 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-style-change-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 8.5</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-style-change-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-style-change-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.2</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-style-change-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — — (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-style-change-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — — · native (same across tiers)</sub></td></tr></table>
 
 **Add Tagline Text**
 
@@ -519,7 +531,7 @@ Add a clean commercial tagline to this image as an overlaid caption that reads e
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-add-tagline-text-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-add-tagline-text-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 6.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-add-tagline-text-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 6.8 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-add-tagline-text-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.5</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-add-tagline-text-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-add-tagline-text-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 6.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-add-tagline-text-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 6.7 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-add-tagline-text-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.2 · native (same across tiers)</sub></td></tr></table>
 
 **Object + Background**
 
@@ -534,7 +546,7 @@ Keep the main foreground subject of this image completely unchanged — identica
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-object-background-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-object-background-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-object-background-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 6.5 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-object-background-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 8.8</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-object-background-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-object-background-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.7</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-object-background-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 4.3 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-object-background-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 8.5 · native (same across tiers)</sub></td></tr></table>
 
 **Business Attire**
 
@@ -549,7 +561,7 @@ Change the clothing of the people in this image to formal business attire — ta
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-business-attire-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-business-attire-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-business-attire-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 6.5 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-business-attire-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.4</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-business-attire-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-low-business-attire-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-business-attire-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 7.8 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-business-attire-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.3 · native (same across tiers)</sub></td></tr></table>
 
 ##### Medium quality
 
@@ -566,7 +578,7 @@ Repaint this photograph as a textured oil painting with visible brush strokes an
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-style-change-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-style-change-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-style-change-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 6.3 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-style-change-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 8.2</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-style-change-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.8</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-style-change-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-style-change-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — — (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-style-change-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — — · native (same across tiers)</sub></td></tr></table>
 
 **Add Tagline Text**
 
@@ -581,7 +593,7 @@ Add a clean commercial tagline to this image as an overlaid caption that reads e
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-add-tagline-text-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-add-tagline-text-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-add-tagline-text-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 6.9 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-add-tagline-text-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.5</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-add-tagline-text-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-add-tagline-text-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.4</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-add-tagline-text-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 6.7 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-add-tagline-text-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.2 · native (same across tiers)</sub></td></tr></table>
 
 **Object + Background**
 
@@ -594,7 +606,7 @@ Keep the main foreground subject of this image completely unchanged — identica
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-object-background-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 7.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-object-background-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.2</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-object-background-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 2.0 (fallback)</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-object-background-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 7.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-object-background-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.2</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-object-background-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 4.3 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-object-background-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 8.5 · native (same across tiers)</sub></td></tr></table>
 
 **Business Attire**
 
@@ -609,7 +621,7 @@ Change the clothing of the people in this image to formal business attire — ta
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-business-attire-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-business-attire-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-business-attire-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 6.8 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-business-attire-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.3</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-business-attire-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-medium-business-attire-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-business-attire-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 7.8 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-business-attire-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.3 · native (same across tiers)</sub></td></tr></table>
 
 ##### High quality
 
@@ -626,7 +638,7 @@ Repaint this photograph as a textured oil painting with visible brush strokes an
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-style-change-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-style-change-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-style-change-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — — (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-style-change-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — —</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-style-change-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.9</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-style-change-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-style-change-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — — (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-style-change-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — — · native (same across tiers)</sub></td></tr></table>
 
 **Add Tagline Text**
 
@@ -641,7 +653,7 @@ Add a clean commercial tagline to this image as an overlaid caption that reads e
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-add-tagline-text-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-add-tagline-text-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.2</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-add-tagline-text-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 6.7 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-add-tagline-text-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.2</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-add-tagline-text-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-add-tagline-text-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 7.2</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-add-tagline-text-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 6.7 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-add-tagline-text-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.2 · native (same across tiers)</sub></td></tr></table>
 
 **Object + Background**
 
@@ -656,7 +668,7 @@ Keep the main foreground subject of this image completely unchanged — identica
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-object-background-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.6</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-object-background-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-object-background-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 4.3 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-object-background-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 8.5</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-object-background-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 8.6</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-object-background-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.1</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-object-background-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 4.3 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-object-background-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 8.5 · native (same across tiers)</sub></td></tr></table>
 
 **Business Attire**
 
@@ -671,7 +683,7 @@ Change the clothing of the people in this image to formal business attire — ta
 
 </details>
 
-<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-business-attire-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-business-attire-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-business-attire-mai-image-2.jpg" width="220"><br><sub>MAI-Image-2 — 7.8 (fallback)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-business-attire-mai-image-2-5.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.3</sub></td></tr></table>
+<table><tr><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-business-attire-gpt-image-2.jpg" width="220"><br><sub>gpt-image-2 — 9.0</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-high-business-attire-flux-2-pro.jpg" width="220"><br><sub>flux-2-pro — 8.5</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-business-attire-mai-image-2-native.jpg" width="220"><br><sub>MAI-Image-2 — 7.8 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top"><img src="aggregate-report-assets/edit-business-attire-mai-image-2-5-native.jpg" width="220"><br><sub>MAI-Image-2.5 — 9.3 · native (same across tiers)</sub></td></tr></table>
 
 
 ## 2 · Content Safety

@@ -811,6 +811,10 @@ th,td{border:1px solid #1e293b;padding:7px 9px;text-align:center;overflow-wrap:b
 th{background:#111c33;color:#cbd5e1;font-weight:600;}
 td.label,th.label{text-align:left;}
 td.nowrap,th.nowrap{white-space:nowrap;}
+.scroll{overflow-x:auto;margin:10px 0;-webkit-overflow-scrolling:touch;}
+.scroll table{margin:0;}
+table.bymodel{width:auto;min-width:100%;}
+table.bymodel th,table.bymodel td{white-space:nowrap;}
 td.score{font-weight:700;color:#f8fafc;}
 .win{outline:2px solid #fbbf24;outline-offset:-2px;}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:14px 0;}
@@ -955,14 +959,28 @@ def _signed(v: Any, unit: str = "") -> str:
     return f"{'+' if v > 0 else '−'}{abs(v):.1f}{unit}" if unit else f"{'+' if v > 0 else '−'}{abs(v):.2f}"
 
 
+def _native_mean(model_scaling: dict, tiers: list[str], key: str) -> float | None:
+    """Mean of a fixed (no-knob) model's per-tier values.
+
+    MAI-Image sends an identical request at every tier, so its tier cells are
+    repeats of one operating point. We collapse them to a single representative
+    value (their mean) rather than implying a low→high response.
+    """
+    vals = [model_scaling["tiers"].get(t, {}).get(key) for t in tiers]
+    vals = [v for v in vals if isinstance(v, (int, float))]
+    if not vals:
+        return None
+    return sum(vals) / len(vals)
+
+
 def render_quality_scaling(scaling: dict, comp: list[str], colors: dict[str, str],
                            noun_plural: str, family_map: dict[str, str] | None = None) -> str:
     """HTML: per-model average score & latency across the low/medium/high tiers.
 
-    Only models that expose a quality control (GPT-Image's native field, FLUX's
-    steps/guidance mapping) appear here. MAI-Image has no quality parameter — its
-    tiers are identical requests — so it is judged at its single native operating
-    point in the leaderboard above and omitted from this scaling view.
+    Models that expose a quality control (GPT-Image's native field, FLUX's
+    steps/guidance mapping) get a value per tier and a Δ. MAI-Image has no
+    quality parameter — its tiers are identical requests — so it is shown as a
+    single native cell spanning all tiers (its mean), with Δ = "—".
     """
     family_map = family_map or {}
     tiers = scaling["tiers"]
@@ -971,22 +989,24 @@ def render_quality_scaling(scaling: dict, comp: list[str], colors: dict[str, str
     knob = [m for m in comp if has_quality_knob(family_map.get(m))]
     knob_lat = [m for m in scaling["order"] if has_quality_knob(family_map.get(m))]
     fixed = [m for m in scaling["order"] if not has_quality_knob(family_map.get(m))]
-    if not knob:
+    if not knob and not fixed:
         return ""
+    span = len(tiers)
     out = ['<h3>Quality-tier scaling — low → medium → high</h3>']
     out.append('<p class="legend">How each model that exposes a quality control responds as the knob '
                'is turned up (GPT-Image has a native quality field; FLUX maps the tier to '
                'steps/guidance). Δ is the high-minus-low change.</p>')
     if fixed:
         names = ", ".join(esc(m) for m in fixed)
-        out.append('<div class="callout"><b>Not shown here:</b> '
+        out.append('<div class="callout"><b>Native, single operating point:</b> '
                    f'{names} — the MAI-Image family exposes no quality parameter, so every tier sends '
-                   'an identical request. It is judged at its single native operating point in the '
-                   'best-effort leaderboard above and the per-dimension views, not on this scaling axis.</div>')
+                   'an identical request. Its row below is a single native cell spanning all tiers '
+                   '(the mean of its repeats); the tier-to-tier Δ is not applicable.</div>')
     th = "".join(f'<th>{QUALITY_LABEL[t]}</th>' for t in tiers)
     # Score table.
     out.append('<div class="legend">Average quality score per tier (0–10, higher is better)</div>')
-    out.append(f'<table><tr><th class="label">Model</th>{th}<th>Δ score</th></tr>')
+    out.append('<div class="scroll">')
+    out.append(f'<table class="bymodel"><tr><th class="label">Model</th>{th}<th>Δ score</th></tr>')
     for m in knob:
         ms = scaling["models"][m]["tiers"]
         tds = "".join(
@@ -996,18 +1016,30 @@ def render_quality_scaling(scaling: dict, comp: list[str], colors: dict[str, str
         delta = scaling["models"][m]["score_delta"]
         out.append(f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>'
                    f'{esc(m)}</td>{tds}<td class="label">{_signed(delta)}</td></tr>')
-    out.append("</table>")
+    for m in fixed:
+        v = _native_mean(scaling["models"][m], tiers, "score")
+        cell = (f'<td class="score" colspan="{span}" style="background:{score_color(v)}">'
+                f'{fmt(v)} · native (no quality tier)</td>')
+        out.append(f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>'
+                   f'{esc(m)}</td>{cell}<td class="label">—</td></tr>')
+    out.append("</table></div>")
     # Latency table.
     out.append('<div class="legend" style="margin-top:14px">Average latency per tier '
                '(seconds, lower is better)</div>')
-    out.append(f'<table><tr><th class="label">Model</th>{th}<th>Δ time</th></tr>')
+    out.append('<div class="scroll">')
+    out.append(f'<table class="bymodel"><tr><th class="label">Model</th>{th}<th>Δ time</th></tr>')
     for m in knob_lat:
         ms = scaling["models"][m]["tiers"]
         tds = "".join(f'<td>{_fmt_secs(ms.get(t, {}).get("elapsed"))}</td>' for t in tiers)
         delta = scaling["models"][m]["elapsed_delta"]
         out.append(f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>'
                    f'{esc(m)}</td>{tds}<td class="label">{_signed(delta, "s")}</td></tr>')
-    out.append("</table>")
+    for m in fixed:
+        v = _native_mean(scaling["models"][m], tiers, "elapsed")
+        cell = f'<td colspan="{span}">{_fmt_secs(v)} · native (no quality tier)</td>'
+        out.append(f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>'
+                   f'{esc(m)}</td>{cell}<td class="label">—</td></tr>')
+    out.append("</table></div>")
     return "".join(out)
 
 
@@ -1096,7 +1128,7 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
         if tier:
             out.append(f'<h4 class="run-head" style="background:{QUALITY_BADGE[tier]};display:inline-block;'
                        f'padding:2px 10px;border-radius:6px">{QUALITY_LABEL[tier]} quality</h4>')
-        out.append('<table><tr><th class="label">Run</th>'
+        out.append('<div class="scroll"><table class="bymodel"><tr><th class="label">Run</th>'
                    + "".join(f'<th>{esc(m)}</th>' for m in order) + "</tr>")
         for run in truns:
             cells_vals = {m: run["models"].get(m, {}).get("overall") for m in order}
@@ -1114,7 +1146,7 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
                 tag = ' <span class="muted small">(fb)</span>' if fb else ""
                 tds.append(f'<td class="{cls}" style="background:{score_color(v)}">{fmt(v)}{tag}</td>')
             out.append(f'<tr><td class="label">{esc(run["title"])}</td>' + "".join(tds) + "</tr>")
-        out.append("</table>")
+        out.append("</table></div>")
 
     # Exclusion / fallback caveats.
     excluded = [m for m in order if agg["models"][m]["excluded"]]
@@ -1146,7 +1178,7 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
         f'<th>{esc(DIM_SHORT[k])}{"★" if emphasize_retention and k in RETENTION_DIMS else ""}</th>'
         for k in dims_focus
     )
-    out.append(f'<table><tr><th class="label">Model</th>{dim_head}<th>Avg</th></tr>')
+    out.append(f'<div class="scroll"><table class="bymodel"><tr><th class="label">Model</th>{dim_head}<th>Avg</th></tr>')
     for m in head_comp:
         dim_avg = head["models"][m]["dim_avg"]
         tds = "".join(
@@ -1156,7 +1188,7 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
         ov = head["models"][m]["overall_avg"]
         out.append(f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>'
                    f'{esc(m)}</td>{tds}<td class="score" style="background:{score_color(ov)}">{fmt(ov)}</td></tr>')
-    out.append("</table>")
+    out.append("</table></div>")
 
     # Radars (best-effort aggregate, comparison models only).
     out.append("<h3>Dimension profiles</h3>")
@@ -1227,9 +1259,23 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
     # 5) Show the actual output — gallery grouped by quality tier, prompt per run.
     if not no_images:
         out.append("<h3>Result gallery</h3>")
+        # Fixed-family models (MAI — no quality knob) send an identical request at
+        # every tier, so re-show their single best-effort image across all tier
+        # galleries with a remark, instead of three near-identical sampling variants.
+        fam = model_family_map(runs)
+        fixed_models = {m for m in order if not has_quality_knob(fam.get(m))}
+        rep_img: dict[tuple, dict] = {}
+        if grouped and fixed_models:
+            for r in best_effort_runs(runs):
+                for m in fixed_models:
+                    rm = r["models"].get(m)
+                    if rm and rm.get("image"):
+                        rep_img[(m, r["title"])] = rm
         if grouped:
             out.append('<p class="legend">Grouped by quality tier — scan a column down the tiers to see how '
-                       f'a model renders the same {noun} at low, medium and high quality.</p>')
+                       f'a model renders the same {noun} at low, medium and high quality.'
+                       + (' Models with no quality knob (MAI-Image) show the same native image in every tier.'
+                          if fixed_models else "") + '</p>')
         for tier, truns in tier_groups:
             if not truns:
                 continue
@@ -1241,14 +1287,19 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
                 figs = []
                 for m in order:
                     row = run["models"].get(m) or {}
+                    shared = bool(grouped and tier and m in fixed_models)
+                    if shared:
+                        row = rep_img.get((m, run["title"]), row)
                     uri = embed_image(row.get("image"), no_images, thumb_px)
                     if not uri:
                         continue
                     fb = (' <span class="muted">(fallback — text-to-image, not an edit)</span>'
                           if row.get("fallback") else "")
+                    note = (' <span class="muted">(native — same image across tiers; no quality knob)</span>'
+                            if shared else "")
                     figs.append(
                         f'<figure><img loading="lazy" src="{uri}" alt="{esc(m)}">'
-                        f'<figcaption>{esc(m)} — {fmt(row.get("overall"))}{fb}</figcaption></figure>'
+                        f'<figcaption>{esc(m)} — {fmt(row.get("overall"))}{fb}{note}</figcaption></figure>'
                     )
                 if not figs:
                     continue
@@ -1896,7 +1947,7 @@ def md_quality_scaling(scaling: dict, comp: list[str], noun_plural: str,
     knob = [m for m in comp if has_quality_knob(family_map.get(m))]
     knob_lat = [m for m in scaling["order"] if has_quality_knob(family_map.get(m))]
     fixed = [m for m in scaling["order"] if not has_quality_knob(family_map.get(m))]
-    if not knob:
+    if not knob and not fixed:
         return []
     out = ["#### Quality-tier scaling — low → medium → high", "",
            "How each model that exposes a quality control responds as the knob is turned up "
@@ -1904,10 +1955,10 @@ def md_quality_scaling(scaling: dict, comp: list[str], noun_plural: str,
            "Δ is the high-minus-low change.", ""]
     if fixed:
         names = ", ".join(md_text(m) for m in fixed)
-        out += ["> **Not shown here:** " + names + " — the MAI-Image family exposes no quality "
-                "parameter, so every tier sends an identical request. It is judged at its single native "
-                "operating point in the best-effort leaderboard above and the per-dimension views, not "
-                "on this scaling axis.", ""]
+        out += ["> **Native, single operating point:** " + names + " — the MAI-Image family exposes no "
+                "quality parameter, so every tier sends an identical request. Its row shows one native "
+                "value (marked †, the mean of its repeats) repeated across the tier columns; the "
+                "tier-to-tier Δ is not applicable.", ""]
     out.append("_Average quality score per tier (0–10, higher is better)._\n")
     headers = ["Model"] + [QUALITY_LABEL[t] for t in tiers] + ["Δ score"]
     rows = []
@@ -1915,6 +1966,11 @@ def md_quality_scaling(scaling: dict, comp: list[str], noun_plural: str,
         ms = scaling["models"][m]["tiers"]
         row = [md_cell(m)] + [fmt(ms.get(t, {}).get("score")) for t in tiers]
         row.append(_md_signed(scaling["models"][m]["score_delta"]))
+        rows.append(row)
+    for m in fixed:
+        v = _native_mean(scaling["models"][m], tiers, "score")
+        nat = f"{fmt(v)} †"
+        row = [md_cell(m)] + [nat for _ in tiers] + ["—"]
         rows.append(row)
     out.append(md_table(headers, rows))
     out.append("\n_Average latency per tier (seconds, lower is better)._\n")
@@ -1925,7 +1981,15 @@ def md_quality_scaling(scaling: dict, comp: list[str], noun_plural: str,
         row = [md_cell(m)] + [_md_secs(ms.get(t, {}).get("elapsed")) for t in tiers]
         row.append(_md_signed(scaling["models"][m]["elapsed_delta"], "s"))
         rows_t.append(row)
+    for m in fixed:
+        v = _native_mean(scaling["models"][m], tiers, "elapsed")
+        nat = f"{_md_secs(v)} †"
+        row = [md_cell(m)] + [nat for _ in tiers] + ["—"]
+        rows_t.append(row)
     out.append(md_table(headers_t, rows_t))
+    if fixed:
+        out.append("\n† Native single operating point — same value shown in every tier column "
+                   "(no quality knob; not a low→high response).")
     return out
 
 
@@ -2116,9 +2180,22 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
         out += ["#### Result gallery", ""]
         tiers = tiers_present(runs)
         grouped = bool(tiers) and any(r.get("quality") for r in runs)
+        # MAI-Image (no quality knob) sends an identical request at every tier, so
+        # re-show its single best-effort image in each tier gallery with a remark.
+        fam = model_family_map(runs)
+        fixed_models = {m for m in order if not has_quality_knob(fam.get(m))}
+        rep_img: dict[tuple, dict] = {}
+        if grouped and fixed_models:
+            for r in best_effort_runs(runs):
+                for m in fixed_models:
+                    rm = r["models"].get(m)
+                    if rm and rm.get("image"):
+                        rep_img[(m, r["title"])] = rm
         if grouped:
             out.append("_Grouped by quality tier — scan down the tiers to see how a model renders the same "
-                       f"{noun} at low, medium and high quality._\n")
+                       f"{noun} at low, medium and high quality."
+                       + (" Models with no quality knob (MAI-Image) show the same native image in every tier."
+                          if fixed_models else "") + "_\n")
         tier_groups = [(t, [r for r in runs if r.get("quality") == t]) for t in tiers] if grouped \
             else [("", runs)]
         if grouped:
@@ -2135,11 +2212,18 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
                 qtag = f"-{tier}" if tier else ""
                 for m in order:
                     row = run["models"].get(m) or {}
-                    rel = assets.add(row.get("image"), f"{anchor}{qtag}-{run['title']}-{m}")
+                    shared = bool(grouped and tier and m in fixed_models)
+                    if shared:
+                        row = rep_img.get((m, run["title"]), row)
+                        asset_key = f"{anchor}-{run['title']}-{m}-native"
+                    else:
+                        asset_key = f"{anchor}{qtag}-{run['title']}-{m}"
+                    rel = assets.add(row.get("image"), asset_key)
                     if not rel:
                         continue
                     fb = " (fallback)" if row.get("fallback") else ""
-                    items.append((rel, f"{m} — {fmt(row.get('overall'))}{fb}"))
+                    note = " · native (same across tiers)" if shared else ""
+                    items.append((rel, f"{m} — {fmt(row.get('overall'))}{fb}{note}"))
                 if not items:
                     continue
                 out.append(f"**{md_text(run['title'])}**\n")
