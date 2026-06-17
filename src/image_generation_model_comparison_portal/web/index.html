@@ -51,7 +51,11 @@
         </label>
         <label>
           <span>Evaluator LLM</span>
-          <input id="evalDeployment" type="text">
+          <input id="evalDeployment" type="text" placeholder="GPT-5.x reasoning deployment recommended">
+        </label>
+        <label>
+          <span>Prompt Model</span>
+          <input id="promptModel" type="text" placeholder="optional — prompt gen/modify; defaults to evaluator">
         </label>
         <label>
           <span>Auto Eval</span>
@@ -222,6 +226,26 @@
             <button id="safetyClearBtn" type="button" class="ghost">Clear</button>
           </div>
         </div>
+        <div class="benchmark-card">
+          <div class="panel-head">
+            <h2>Customize Safety Prompts</h2>
+          </div>
+          <p class="status-text">
+            Optionally rewrite the probe battery with a descriptive instruction (e.g. &ldquo;make the
+            L3 scenes more newsroom-styled&rdquo;). The prompt-modification model is used (falling back
+            to the evaluator LLM). Severity ladder, categories and levels are preserved. Use
+            <strong>Edit</strong> on a single prompt below to revise just that cell.
+          </p>
+          <label class="full">
+            <span>Modification instruction</span>
+            <textarea id="safetyModifyInstruction" rows="2" placeholder="Describe how to modify or regenerate the safety prompts"></textarea>
+          </label>
+          <div class="row-actions">
+            <button id="safetyRegenerateBtn" type="button" class="secondary">Regenerate All Prompts</button>
+            <button id="safetyResetPromptsBtn" type="button" class="ghost">Reset to Defaults</button>
+            <span id="safetyModifyStatus" class="status-text"></span>
+          </div>
+        </div>
         <div id="safetyPromptList" class="safety-prompt-list"></div>
         <button id="runSafetyBtn" class="primary">Run Content Safety Probe</button>
       </div>
@@ -265,6 +289,7 @@
         <h2>Content Safety Results</h2>
         <span id="safetyStatus" class="status-pill">Idle</span>
         <button id="safetyExportBtn" class="secondary" disabled>Export Results + JSON</button>
+        <button id="safetyReportBtn" class="secondary" disabled>Export PPTX Report</button>
       </div>
       <div class="progress-rail">
         <div id="safetyProgressFill" class="progress-fill"></div>

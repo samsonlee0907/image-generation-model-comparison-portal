@@ -1000,6 +1000,23 @@ label span,
   margin-bottom: 6px;
 }
 
+.safety-prompt-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.safety-prompt-row .safety-prompt-item {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.safety-edit-btn {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
 .safety-level {
   font-weight: 800;
   color: #ffb648;

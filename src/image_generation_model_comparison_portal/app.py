@@ -120,6 +120,9 @@ class MainWindow(QMainWindow):
         self.flux_api_version = QLineEdit("preview")
         self.vision_api_version = QLineEdit("2023-10-01")
         self.eval_deployment = QLineEdit()
+        self.eval_deployment.setPlaceholderText("GPT-5.x reasoning deployment recommended")
+        self.prompt_model = QLineEdit()
+        self.prompt_model.setPlaceholderText("optional — prompt gen/modify; defaults to evaluator")
         self.auto_eval = QComboBox()
         self.auto_eval.addItems(["yes", "no"])
         self.eval_detail = QComboBox()
@@ -142,6 +145,7 @@ class MainWindow(QMainWindow):
             ("CV Enabled", self.cv_enabled, 2, 3),
             ("CV Endpoint", self.cv_endpoint, 3, 0),
             ("CV API Key", self.cv_secret, 3, 1),
+            ("Prompt Model", self.prompt_model, 3, 2),
         ]
         for label_text, widget, row, col in fields:
             wrapper = QVBoxLayout()
@@ -435,6 +439,7 @@ class MainWindow(QMainWindow):
         self.cv_endpoint.setText(config.cv_endpoint)
         self.cv_secret.setText(config.cv_secret)
         self.eval_deployment.setText(config.eval_deployment)
+        self.prompt_model.setText(config.prompt_model)
         self.auto_eval.setCurrentText(config.auto_eval)
         self.eval_detail.setCurrentText(config.eval_detail)
         self.cv_enabled.setCurrentText(config.cv_enabled)
@@ -453,6 +458,7 @@ class MainWindow(QMainWindow):
             cv_endpoint=self.cv_endpoint.text().strip(),
             cv_secret=self.cv_secret.text().strip(),
             eval_deployment=self.eval_deployment.text().strip(),
+            prompt_model=self.prompt_model.text().strip(),
             auto_eval=self.auto_eval.currentText(),
             eval_detail=self.eval_detail.currentText(),
             cv_enabled=self.cv_enabled.currentText(),

@@ -17,12 +17,14 @@ such as `MAI-Image-2.5` work without any code change.
 - Runs generation, CV analysis, and evaluator scoring concurrently.
 - Scores image quality on a **benchmark-aligned, data-driven** metric set (GenEval / T2I-CompBench / DPG-Bench axes).
 - Provides a separate **Content Safety** probe that observes each model's baseline gating behavior across severity tiers (does the model produce an image or block the request).
+- Lets you **customize the content-safety battery** — rewrite the whole battery or edit a single prompt with a descriptive instruction, driven by an optional dedicated **prompt-modification model** (falls back to the evaluator LLM).
 - Draws bounding boxes from CV output and lets users toggle them on or off.
 - Provides retry actions for failed image generations, plus a per-cell **Retry** on individual content-safety error cards.
-- Exports generated images and evaluation results to PPTX.
+- Exports generated images and evaluation results to PPTX, plus a dedicated **content-safety review PPTX** (severity legend, per-model outcome matrix, and the produced images for human review).
 - Exports generated images plus a `results.json` manifest to a local folder for notebook analysis.
 - Exports content-safety probe outcomes (gating results + ungated images) to a `safety-results.json` manifest.
 - Aggregates exported generation, image-edit, and **content-safety** runs into one [comparison report](test-reports/aggregate-report.md) (self-contained HTML + GitHub-readable Markdown) via `tools/aggregate_report.py`.
+- Runs the **whole matrix headlessly** (generation + edit across quality tiers, plus safety once) with `tools/run_sweep.py`, exporting straight into the report-ready `portal-exports/` layout.
 - Retries rate-limited (HTTP 429, 60s backoff) and transient (502/503/504, dropped connections, timeouts; short backoff) requests automatically.
 
 ## Documentation
@@ -77,7 +79,12 @@ Set these values before starting a comparison:
 - `API Key`
   The credential for that endpoint.
 - `Evaluator LLM`
-  The model used to generate benchmark prompts and score image quality.
+  The model used to generate benchmark prompts and score image quality. A GPT-5.x
+  reasoning deployment (e.g. GPT-5.4) is recommended; the app sends
+  `reasoning_effort=high` and omits `temperature` for reasoning models.
+- `Prompt modification model` *(optional)*
+  A dedicated deployment used for prompt generation/refinement and content-safety
+  prompt regeneration. Leave blank to reuse the Evaluator LLM.
 - `CV Endpoint` and `CV API Key`
   Optional if you want to use a separate Azure AI Vision resource.
 - Model rows
@@ -126,9 +133,11 @@ applied **and** how well the original details, objects, identities, and context 
 ## Content Safety Flow
 
 1. Open the `Content Safety` tab.
-2. Select the severity-tiered (L1–L5) prompts to probe across the Hate / Sexual / Violence / Self-Harm categories.
-3. Click `Run Content Safety Probe`.
-4. For each model × prompt the portal reports the model's **baseline behavior** — whether the model **gated** the request (input or output filtered) or **produced** an image. No external moderation service is called; the signal is the model's own default guardrails.
+2. (Optional) Use **Customize Safety Prompts** to tailor the battery: type a descriptive instruction and **Regenerate All Prompts**, or press **Edit** on a single prompt to revise just that cell. The prompt-modification model is used (falling back to the evaluator LLM); the severity ladder, categories, and levels are preserved. **Reset to Defaults** restores the built-in battery.
+3. Select the severity-tiered (L1–L5) prompts to probe across the Hate / Sexual / Violence / Self-Harm categories.
+4. Click `Run Content Safety Probe`.
+5. For each model × prompt the portal reports the model's **baseline behavior** — whether the model **gated** the request (input or output filtered) or **produced** an image. No external moderation service is called; the signal is the model's own default guardrails.
+6. Use `Export PPTX Report` on the safety panel to build a **human-review deck**: a severity legend, a per-model `category × level` outcome matrix, and the actually-produced images so a reviewer can judge whether produced content is appropriate.
 
 See [Content Safety Evaluation](docs/CONTENT_SAFETY_EVALUATION.md) for the probe design, severity tiers, and responsible-use notes.
 
@@ -157,10 +166,12 @@ Use `Export Images + JSON` to write the run's generated images to a local
 folder together with a single machine-readable manifest for downstream
 analysis (e.g. a Python notebook that aggregates multiple iterations).
 
-Each export is written to `portal-exports/<timestamp>-<runId>/`:
+Each export is written to `portal-exports/<category>/<timestamp>-<runId>/`,
+where `<category>` is `generation` or `edit` (chosen from the run mode) so the
+three test types land in separate trees the report tool can scan directly:
 
 ```
-portal-exports/20240101-120000-abc123/
+portal-exports/generation/20240101-120000-abc123/
   results.json          # run metadata + one record per model
   images/<model>.png    # one file per produced image
 ```
@@ -188,10 +199,10 @@ safety run probes each model with a battery of escalating-severity prompts
 (rather than a single benchmark image), it gets its own manifest and only saves
 the images that models actually produced (i.e. did **not** gate).
 
-Each export is written to `portal-exports/safety-<timestamp>-<runId>/`:
+Each export is written to `portal-exports/safety/safety-<timestamp>-<runId>/`:
 
 ```
-portal-exports/safety-20240101-120000-abc123/
+portal-exports/safety/safety-20240101-120000-abc123/
   safety-results.json                  # per model x per prompt outcomes
   images/<model>__<promptId>.png       # only for ungated ("Produced") cells
 ```
@@ -209,7 +220,30 @@ portal-exports/safety-20240101-120000-abc123/
 
 The `portal-exports/` folder is git-ignored.
 
-## Rate-Limit & Transient-Error Handling
+## Automated Sweep
+
+Instead of clicking through the console for every theme, quality tier, and test
+type, run the whole matrix headlessly with `tools/run_sweep.py`. It drives the
+portal's own services layer using your saved config + enabled models and writes
+results straight into the report-ready `portal-exports/` layout.
+
+```
+python tools/run_sweep.py                   # low + medium + high generation/edit, safety once
+python tools/run_sweep.py --qualities high  # only the high tier
+python tools/run_sweep.py --skip-edit       # generation + safety only
+python tools/run_sweep.py --skip-safety     # generation + edit only
+python tools/run_sweep.py --dry-run         # print the plan, run nothing
+```
+
+For each requested quality tier it runs the four generation themes and the four
+edit scenarios; the content-safety battery runs once (its prompts do not depend
+on the image quality tier). Evaluation is forced on so the runs carry scores.
+The edit scenarios use `test-reports/results/ImageEditTest/ReferenceImage.png`
+as the source image by default — override with `--reference <path>`. When the
+sweep finishes, build the aggregated report with `tools/aggregate_report.py`
+(which reads `portal-exports/` by default).
+
+
 
 Generation, image-edit, and content-safety requests automatically retry two
 classes of transient failure before surfacing an error:

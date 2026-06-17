@@ -384,6 +384,7 @@ class AppConfig:
     cv_endpoint: str = ""
     cv_secret: str = ""
     eval_deployment: str = ""
+    prompt_model: str = ""
     auto_eval: str = "yes"
     eval_detail: str = "high"
     cv_enabled: str = "yes"
@@ -400,6 +401,7 @@ class AppConfig:
             "cv_endpoint": self.cv_endpoint,
             "cv_secret": self.cv_secret,
             "eval_deployment": self.eval_deployment,
+            "prompt_model": self.prompt_model,
             "auto_eval": self.auto_eval,
             "eval_detail": self.eval_detail,
             "cv_enabled": self.cv_enabled,

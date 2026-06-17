@@ -6,6 +6,7 @@ const state = {
   safetyRunId: null,
   safetyRun: null,
   safetyPollTimer: null,
+  safetyPrompts: null,
   promptGuidance: {
     text: { title: "", dimensionMap: {} },
     edit: { title: "", dimensionMap: {} },
@@ -88,6 +89,7 @@ function loadConfig(config) {
   byId("fluxApiVersion").value = config.flux_api_version || "preview";
   byId("visionApiVersion").value = config.vision_api_version || "2023-10-01";
   byId("evalDeployment").value = config.eval_deployment || "";
+  byId("promptModel").value = config.prompt_model || "";
   byId("autoEval").value = config.auto_eval || "yes";
   byId("evalDetail").value = config.eval_detail || "high";
   byId("cvEnabled").value = config.cv_enabled || "yes";
@@ -105,6 +107,7 @@ function collectConfig() {
     flux_api_version: byId("fluxApiVersion").value.trim(),
     vision_api_version: byId("visionApiVersion").value.trim(),
     eval_deployment: byId("evalDeployment").value.trim(),
+    prompt_model: byId("promptModel").value.trim(),
     auto_eval: byId("autoEval").value,
     eval_detail: byId("evalDetail").value,
     cv_enabled: byId("cvEnabled").value,
@@ -1139,12 +1142,21 @@ function safetyLevelLabel(level) {
   return Number(level) >= 6 ? "L5+" : `L${level}`;
 }
 
+function safetyWorkingPrompts() {
+  if (!state.safetyPrompts) {
+    state.safetyPrompts = (state.bootstrap?.safetyPrompts || []).map((prompt) => ({ ...prompt }));
+  }
+  return state.safetyPrompts;
+}
+
 function renderSafetyPrompts() {
   const list = byId("safetyPromptList");
   if (!list) {
     return;
   }
-  const prompts = state.bootstrap?.safetyPrompts || [];
+  const existing = document.querySelectorAll(".safety-prompt-check");
+  const prevSelected = existing.length ? new Set(selectedSafetyPromptIds()) : null;
+  const prompts = safetyWorkingPrompts();
   const byCategory = new Map();
   prompts.forEach((prompt) => {
     if (!byCategory.has(prompt.category)) {
@@ -1162,14 +1174,17 @@ function renderSafetyPrompts() {
     items
       .sort((a, b) => a.level - b.level)
       .forEach((prompt) => {
+        const row = document.createElement("div");
+        row.className = "safety-prompt-row";
         const label = document.createElement("label");
         label.className = "safety-prompt-item";
+        const checked = prevSelected ? (prevSelected.has(prompt.id) ? "checked" : "") : "checked";
         const techniqueLine =
           prompt.technique && prompt.technique !== "Direct request"
             ? `<small class="safety-technique">Technique: ${escapeHtml(prompt.technique)}</small>`
             : "";
         label.innerHTML = `
-          <input type="checkbox" class="safety-prompt-check" value="${escapeHtml(prompt.id)}" checked>
+          <input type="checkbox" class="safety-prompt-check" value="${escapeHtml(prompt.id)}" ${checked}>
           <span class="safety-level">${safetyLevelLabel(prompt.level)}</span>
           <span class="safety-prompt-text">
             <strong>${escapeHtml(prompt.label)}</strong>
@@ -1177,10 +1192,104 @@ function renderSafetyPrompts() {
             ${techniqueLine}
             <small>Expected: ${escapeHtml(prompt.expectation)}</small>
           </span>`;
-        group.appendChild(label);
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "ghost safety-edit-btn";
+        editBtn.dataset.id = prompt.id;
+        editBtn.textContent = "Edit";
+        row.appendChild(label);
+        row.appendChild(editBtn);
+        group.appendChild(row);
       });
     list.appendChild(group);
   });
+}
+
+function setSafetyModifyStatus(message, isError) {
+  const el = byId("safetyModifyStatus");
+  if (!el) {
+    return;
+  }
+  el.textContent = message || "";
+  el.style.color = isError ? "var(--danger, #c0392b)" : "";
+}
+
+async function regenerateSafetyPrompts() {
+  const instruction = byId("safetyModifyInstruction").value.trim();
+  if (!instruction) {
+    setSafetyModifyStatus("Enter a modification instruction first.", true);
+    return;
+  }
+  const btn = byId("safetyRegenerateBtn");
+  btn.disabled = true;
+  setSafetyModifyStatus("Regenerating prompts...", false);
+  try {
+    const response = await api("/api/safety/regenerate", {
+      method: "POST",
+      body: JSON.stringify({
+        config: collectConfig(),
+        instruction,
+        prompts: safetyWorkingPrompts(),
+      }),
+    });
+    if (Array.isArray(response.prompts) && response.prompts.length) {
+      state.safetyPrompts = response.prompts.map((prompt) => ({ ...prompt }));
+      renderSafetyPrompts();
+      setSafetyModifyStatus(`Updated ${response.prompts.length} prompts.`, false);
+    } else {
+      setSafetyModifyStatus("No prompts returned.", true);
+    }
+  } catch (err) {
+    setSafetyModifyStatus(err.message || "Failed to regenerate prompts.", true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function editSafetyPrompt(promptId) {
+  const current = safetyWorkingPrompts().find((prompt) => prompt.id === promptId);
+  if (!current) {
+    return;
+  }
+  const instruction = window.prompt(`How should this ${current.label} prompt be changed?`, "");
+  if (instruction === null) {
+    return;
+  }
+  const trimmed = instruction.trim();
+  if (!trimmed) {
+    setSafetyModifyStatus("Enter an instruction to edit a prompt.", true);
+    return;
+  }
+  setSafetyModifyStatus(`Editing ${current.label}...`, false);
+  try {
+    const response = await api("/api/safety/edit", {
+      method: "POST",
+      body: JSON.stringify({
+        config: collectConfig(),
+        instruction: trimmed,
+        prompt: current,
+      }),
+    });
+    if (response.prompt && response.prompt.id) {
+      const idx = state.safetyPrompts.findIndex((prompt) => prompt.id === response.prompt.id);
+      if (idx >= 0) {
+        state.safetyPrompts[idx] = { ...response.prompt };
+      }
+      renderSafetyPrompts();
+      setSafetyModifyStatus(`Updated ${response.prompt.label || promptId}.`, false);
+    } else {
+      setSafetyModifyStatus("No prompt returned.", true);
+    }
+  } catch (err) {
+    setSafetyModifyStatus(err.message || "Failed to edit prompt.", true);
+  }
+}
+
+function resetSafetyPrompts() {
+  state.safetyPrompts = (state.bootstrap?.safetyPrompts || []).map((prompt) => ({ ...prompt }));
+  byId("safetyModifyInstruction").value = "";
+  renderSafetyPrompts();
+  setSafetyModifyStatus("Restored default prompts.", false);
 }
 
 function selectedSafetyPromptIds() {
@@ -1207,6 +1316,7 @@ async function startSafetyRun() {
         config: collectConfig(),
         models,
         promptIds,
+        prompts: safetyWorkingPrompts(),
       }),
     });
     state.safetyRunId = response.runId;
@@ -1214,6 +1324,7 @@ async function startSafetyRun() {
     byId("safetyPanel").classList.remove("hidden");
     byId("safetyGrid").innerHTML = "";
     byId("safetyExportBtn").disabled = true;
+    byId("safetyReportBtn").disabled = true;
     startSafetyPolling();
   } catch (error) {
     alert(error.message);
@@ -1271,6 +1382,38 @@ function hasSafetyOutcomes(run) {
   });
 }
 
+async function exportSafetyReport() {
+  if (!state.safetyRunId) {
+    return;
+  }
+  showRequestOverlay(
+    "Building content-safety PPTX...",
+    "Collecting the severity legend, per-model outcome matrix, and produced images for human review."
+  );
+  byId("safetyReportBtn").disabled = true;
+  try {
+    const payload = await api(`/api/runs/${state.safetyRunId}/safety-report`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const anchor = document.createElement("a");
+    anchor.href = payload.downloadUrl;
+    anchor.download = payload.fileName || "image-generation-model-comparison-portal-safety.pptx";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setStatus("Content-safety PPTX ready.");
+  } catch (error) {
+    setStatus(error.message);
+    alert(error.message);
+  } finally {
+    hideRequestOverlay();
+    if (state.safetyRun) {
+      byId("safetyReportBtn").disabled = !hasSafetyOutcomes(state.safetyRun);
+    }
+  }
+}
+
 async function refreshSafetyRun() {
   if (!state.safetyRunId) {
     return;
@@ -1303,6 +1446,7 @@ function renderSafetyRun(run) {
     ? `${Math.round((run.progress.done / run.progress.total) * 100)}%`
     : "0%";
   byId("safetyExportBtn").disabled = !hasSafetyOutcomes(run);
+  byId("safetyReportBtn").disabled = !hasSafetyOutcomes(run);
   const promptsById = new Map((run.prompts || []).map((prompt) => [prompt.id, prompt]));
   const grid = byId("safetyGrid");
   grid.innerHTML = "";
@@ -1384,6 +1528,15 @@ function bindEvents() {
   byId("runEditBtn").addEventListener("click", () => startRun("edit"));
   byId("runSafetyBtn").addEventListener("click", () => startSafetyRun());
   byId("safetyExportBtn").addEventListener("click", () => exportSafetyResults());
+  byId("safetyReportBtn").addEventListener("click", () => exportSafetyReport());
+  byId("safetyRegenerateBtn").addEventListener("click", () => regenerateSafetyPrompts());
+  byId("safetyResetPromptsBtn").addEventListener("click", () => resetSafetyPrompts());
+  byId("safetyPromptList").addEventListener("click", (event) => {
+    const editBtn = event.target.closest(".safety-edit-btn");
+    if (editBtn) {
+      editSafetyPrompt(editBtn.dataset.id);
+    }
+  });
   byId("safetySelectAllBtn").addEventListener("click", () => {
     document.querySelectorAll(".safety-prompt-check").forEach((input) => { input.checked = true; });
   });

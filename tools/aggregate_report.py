@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Aggregate portal test results into a single self-contained HTML report.
 
-Scans a ``test-reports/results`` tree containing three kinds of exported runs
-(image generation, image edit, content-safety) and renders one offline HTML file
-that compares every model across all runs: quality leaderboards, per-dimension
-heatmaps, radar charts, latency/cost, and a content-safety guardrail breakdown
-(gating rate, severity-escalation curve, leakage and over-refusal tables).
+Scans a ``portal-exports`` tree containing three kinds of exported runs split
+into ``generation/``, ``edit/`` and ``safety/`` subfolders (image generation,
+image edit, content-safety) and renders one offline HTML file that compares
+every model across all runs: quality leaderboards, per-dimension heatmaps, radar
+charts, latency/cost, and a content-safety guardrail breakdown (gating rate,
+severity-escalation curve, leakage and over-refusal tables).
 
 The report is fully self-contained: inline CSS, hand-built inline SVG charts, and
 base64-embedded image thumbnails. There are no external/CDN/network dependencies.
@@ -14,7 +15,7 @@ output); otherwise images are embedded at full size. Everything else is stdlib.
 
 Usage:
     python tools/aggregate_report.py \
-        --results-dir test-reports/results \
+        --results-dir portal-exports \
         --out test-reports/aggregate-report.html [--no-images] [--thumb-px 360]
 """
 from __future__ import annotations
@@ -1413,11 +1414,13 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
     parts.append('<p class="sub">Every image-generation request in this test set was sent at '
                  '<code>quality="high"</code> so each model is judged on its best-effort output. Models whose '
                  'API exposes a quality tier (the GPT-Image API) take longer to render and bill more '
-                 'image-output tokens at <code>high</code>. FLUX and the MAI models don\'t take this enum, '
-                 'but they have their own fidelity controls — FLUX exposes inference <b>steps</b>, '
-                 '<b>guidance</b> scale and <b>prompt-upsampling</b>, and for both, output <b>resolution</b> '
-                 'is the main quality lever — which the portal leaves at each deployment\'s defaults. So those '
-                 'two run at default fidelity here while GPT-Image is explicitly pinned to <code>high</code>.'
+                 'image-output tokens at <code>high</code>. FLUX doesn\'t take this enum, so the portal '
+                 'translates the same tier into FLUX\'s own fidelity controls — at <code>high</code> it sends '
+                 'inference <b>steps</b>≈50 and a <b>guidance</b> scale≈4.0 (the prompt itself is never '
+                 'rewritten) so FLUX renders at a comparable effort level rather than its default. The MAI '
+                 'models expose no equivalent knob besides output <b>resolution</b>, so they run at each '
+                 'deployment\'s default fidelity. (If a hosted FLUX pipeline pins these parameters internally, '
+                 'the portal gracefully drops them and falls back to the default.)'
                  + (f' Deeper dive: {_ql_link} — how the 13 dimensions are defined and scored.'
                     if _ql_link else "") + '</p>')
     parts.append(render_quality_section(gen, colors, "Text-to-image generation", "generation",
@@ -2044,12 +2047,13 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
     _ql_link = _doc_link_md(ref, "image_quality")
     out.append('Every image-generation request in this test set was sent at `quality="high"` so each model '
                "is judged on its best-effort output. Models whose API exposes a quality tier (the GPT-Image "
-               "API) take longer to render and bill more image-output tokens at `high`. FLUX and the MAI "
-               "models don't take this enum, but they have their own fidelity controls — FLUX exposes "
-               "inference **steps**, **guidance** scale and **prompt-upsampling**, and for both, output "
-               "**resolution** is the main quality lever — which the portal leaves at each deployment's "
-               "defaults. So those two run at default fidelity here while GPT-Image is explicitly pinned to "
-               "`high`."
+               "API) take longer to render and bill more image-output tokens at `high`. FLUX doesn't take "
+               "this enum, so the portal translates the same tier into FLUX's own fidelity controls — at "
+               "`high` it sends inference **steps**≈50 and a **guidance** scale≈4.0 (the prompt itself is "
+               "never rewritten) so FLUX renders at a comparable effort level rather than its default. The "
+               "MAI models expose no equivalent knob besides output **resolution**, so they run at each "
+               "deployment's default fidelity. (If a hosted FLUX pipeline pins these parameters internally, "
+               "the portal gracefully drops them and falls back to the default.)"
                + (f" Deeper dive: {_ql_link} — how the 13 dimensions are defined and scored."
                   if _ql_link else "") + "\n")
     out.append(md_quality_section(gen, "Text-to-image generation", "generation", False, assets))
@@ -2082,7 +2086,7 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Aggregate portal test results into one HTML report.")
-    ap.add_argument("--results-dir", default="test-reports/results", type=Path)
+    ap.add_argument("--results-dir", default="portal-exports", type=Path)
     ap.add_argument("--out", default="test-reports/aggregate-report.html", type=Path)
     ap.add_argument("--no-images", action="store_true", help="Skip embedding image thumbnails (smaller file).")
     ap.add_argument("--thumb-px", default=360, type=int, help="Max thumbnail edge in px (needs Pillow).")
