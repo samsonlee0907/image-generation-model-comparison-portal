@@ -1698,7 +1698,7 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
         "<h1>Image Generation Model Comparison</h1>",
         f'<p class="sub">Aggregated report generated {esc(dataset_meta["generated_at"])} · '
         f'{len(models_all)} models · evaluator <code>{esc(dataset_meta["evaluator"])}</code>.</p>',
-        f'<p class="sub">Every model was put through the <b>same</b> battery: '
+        f'<p class="sub">Every model was put through the <b>same</b> set of tests: '
         f'<b>{dataset_meta["n_gen_runs"]}</b> image-generation themes, '
         f'<b>{dataset_meta["n_edit_runs"]}</b> image-edit scenarios, and a '
         f'<b>{dataset_meta["n_safety_cells"]}</b>-cell content-safety probe '
@@ -2529,7 +2529,7 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
     out = ["# Image Generation Model Comparison", ""]
     out.append(f"Aggregated report generated {md_text(dataset_meta['generated_at'])} · "
                f"{len(models_all)} models · evaluator `{md_text(dataset_meta['evaluator'])}`.\n")
-    out.append(f"Every model was put through the **same** battery: **{dataset_meta['n_gen_runs']}** "
+    out.append(f"Every model was put through the **same** set of tests: **{dataset_meta['n_gen_runs']}** "
                f"image-generation themes, **{dataset_meta['n_edit_runs']}** image-edit scenarios, and a "
                f"**{dataset_meta['n_safety_cells']}**-cell content-safety probe (harm categories × severity "
                "levels L1–L5+). Each section explains what its runs test before showing the scores.\n")

@@ -7,7 +7,7 @@ the results straight into the ``portal-exports/`` tree that
 ``tools/aggregate_report.py`` reads by default.
 
 For every requested quality tier it runs the four image-generation themes and
-the four image-edit scenarios; the content-safety battery is run once (its
+the four image-edit scenarios; the content-safety set of tests is run once (its
 prompts do not depend on the image quality tier). Each run is exported into the
 matching ``portal-exports/<generation|edit|safety>/`` sub-folder.
 
@@ -244,7 +244,7 @@ def _print_plan(qualities: list[str], skip_edit: bool, skip_safety: bool,
             edit_cells += len(EDIT_PRESETS) * len(members)
             print(f"  [{quality}] edit      : {', '.join(EDIT_PRESETS)} x [{names(members)}]")
     if not skip_safety:
-        print("  safety      : full battery (run once)")
+        print("  safety      : full set of tests (run once)")
     print(f"  Image cells : {gen_cells} generation, {edit_cells} edit "
           f"(each model that lacks a quality knob is generated once, not per tier)")
 
@@ -259,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Quality tiers to sweep for generation/edit (default: low medium high; 'mid' = medium).",
     )
     parser.add_argument("--skip-edit", action="store_true", help="Skip the image-edit scenarios.")
-    parser.add_argument("--skip-safety", action="store_true", help="Skip the content-safety battery.")
+    parser.add_argument("--skip-safety", action="store_true", help="Skip the content-safety tests.")
     parser.add_argument(
         "--clean",
         action="store_true",
@@ -372,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"  FAILED: {exc}", file=sys.stderr)
                         failures.append(label)
         if not args.skip_safety:
-            print("\n=== safety (full battery) ===", flush=True)
+            print("\n=== safety (full set of tests) ===", flush=True)
             try:
                 result = _run_safety(runs, config, models, args.poll_timeout)
                 print(f"  exported -> {result.get('folder')}")

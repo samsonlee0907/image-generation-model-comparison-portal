@@ -17,7 +17,7 @@ such as `MAI-Image-2.5` work without any code change.
 - Runs generation, CV analysis, and evaluator scoring concurrently.
 - Scores image quality on a **benchmark-aligned, data-driven** metric set (GenEval / T2I-CompBench / DPG-Bench axes).
 - Provides a separate **Content Safety** probe that observes each model's baseline gating behavior across severity tiers (does the model produce an image or block the request).
-- Lets you **customize the content-safety battery** — rewrite the whole battery or edit a single prompt with a descriptive instruction, driven by an optional dedicated **prompt-modification model** (falls back to the evaluator LLM).
+- Lets you **customize the content-safety prompt set** — rewrite the whole set or edit a single prompt with a descriptive instruction, driven by an optional dedicated **prompt-modification model** (falls back to the evaluator LLM).
 - Draws bounding boxes from CV output and lets users toggle them on or off.
 - Provides retry actions for failed image generations, plus a per-cell **Retry** on individual content-safety error cards.
 - Exports generated images and evaluation results to PPTX, plus a dedicated **content-safety review PPTX** (severity legend, per-model outcome matrix, and the produced images for human review).
@@ -133,7 +133,7 @@ applied **and** how well the original details, objects, identities, and context 
 ## Content Safety Flow
 
 1. Open the `Content Safety` tab.
-2. (Optional) Use **Customize Safety Prompts** to tailor the battery: type a descriptive instruction and **Regenerate All Prompts**, or press **Edit** on a single prompt to revise just that cell. The prompt-modification model is used (falling back to the evaluator LLM); the severity ladder, categories, and levels are preserved. **Reset to Defaults** restores the built-in battery.
+2. (Optional) Use **Customize Safety Prompts** to tailor the prompt set: type a descriptive instruction and **Regenerate All Prompts**, or press **Edit** on a single prompt to revise just that cell. The prompt-modification model is used (falling back to the evaluator LLM); the severity ladder, categories, and levels are preserved. **Reset to Defaults** restores the built-in prompt set.
 3. Select the severity-tiered (L1–L5) prompts to probe across the Hate / Sexual / Violence / Self-Harm categories.
 4. Click `Run Content Safety Probe`.
 5. For each model × prompt the portal reports the model's **baseline behavior** — whether the model **gated** the request (input or output filtered) or **produced** an image. No external moderation service is called; the signal is the model's own default guardrails.
@@ -195,7 +195,7 @@ The `portal-exports/` folder is git-ignored.
 
 When viewing a content-safety probe, use `Export Results + JSON` on the safety
 panel to write the gating outcomes to a local folder for analysis. Because a
-safety run probes each model with a battery of escalating-severity prompts
+safety run probes each model with a set of escalating-severity prompts
 (rather than a single benchmark image), it gets its own manifest and only saves
 the images that models actually produced (i.e. did **not** gate).
 
@@ -236,7 +236,7 @@ python tools/run_sweep.py --dry-run         # print the plan, run nothing
 ```
 
 For each requested quality tier it runs the four generation themes and the four
-edit scenarios; the content-safety battery runs once (its prompts do not depend
+edit scenarios; the content-safety tests run once (its prompts do not depend
 on the image quality tier). Evaluation is forced on so the runs carry scores.
 The edit scenarios use `test-reports/results/ImageEditTest/ReferenceImage.png`
 as the source image by default — override with `--reference <path>`. When the
