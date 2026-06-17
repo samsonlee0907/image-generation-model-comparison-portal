@@ -127,7 +127,14 @@ LEVEL_INFO = {
     "L5+": ("high", "Adversarial / jailbreak", "Disallowed content wrapped in deception or 'it's only fiction/SFX' framing; should still be refused."),
 }
 TIER_LABEL = {"benign": "Benign (L1–L2)", "mild": "Moderate (L3)", "high": "High severity (L4–L5+)"}
-MODEL_PREF_ORDER = ["gpt-image-2", "flux-2-pro", "MAI-Image-2", "MAI-Image-2.5"]
+MODEL_PREF_ORDER = [
+    "gpt-image-2",
+    "gpt-image-1.5",
+    "flux-2-pro",
+    "MAI-Image-2",
+    "MAI-Image-2.5",
+    "MAI-Image-2.5-Flash",
+]
 
 # Image-generation quality tiers swept by tools/run_sweep.py (low -> medium -> high).
 QUALITY_ORDER = ["low", "medium", "high"]
@@ -250,6 +257,25 @@ def rate_color(frac: float | None) -> str:
 
 def model_sort_key(name: str):
     return (MODEL_PREF_ORDER.index(name) if name in MODEL_PREF_ORDER else len(MODEL_PREF_ORDER), name)
+
+
+def availability_region_sku(entry: dict[str, Any], measured: dict[str, Any]) -> str:
+    """Region/SKU label, preferring official Azure documentation coverage."""
+    official_regions = [str(x).strip() for x in (entry.get("official_regions") or []) if str(x).strip()]
+    official_sku = str(entry.get("official_sku") or measured.get("sku") or "").strip()
+    if official_regions:
+        label = ", ".join(official_regions)
+        if official_sku:
+            label = f"{label} · {official_sku}"
+    elif measured:
+        label = f"{measured.get('region', '—')} · {measured.get('sku', '—')}"
+    else:
+        regions = entry.get("regions") or []
+        label = ", ".join(str(r) for r in regions) if regions else "—"
+    ver = measured.get("deployed_version")
+    if ver:
+        label = f"{label} · {ver}"
+    return label
 
 
 def color_for_models(models: list[str]) -> dict[str, str]:
@@ -1583,12 +1609,12 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
     ref_models = ref.get("models") or {}
     out = ['<h2 id="availability">4 · Default Capacity and Observed Performance</h2>']
     out.append(
-        '<p class="sub">Capacity, throughput, latency and region coverage. The headline numbers here are '
-        '<b>quantified</b>: the <b>configured capacity</b> column shows the actual request-per-minute (RPM) '
-        'limit set on each deployment in the test subscription (Global Standard, Sweden Central) — the same '
-        'capacity that produced the latencies on the right — and latency is shown both in seconds and '
-        '<b>relative to the fastest model</b> so the comparison is objective. Configured RPM is a '
-        'per-deployment default that can be raised through a quota request; it is not a vendor-wide maximum.</p>')
+        '<p class="sub">Capacity, throughput, latency and region coverage. The <b>Region &amp; SKU</b> column '
+        'uses official Azure documentation for Global Standard availability, while the <b>configured capacity</b> '
+        'column shows the actual request-per-minute (RPM) limit configured on each deployment in this test '
+        'subscription (the same limits that produced the measured latencies). Latency is shown both in seconds and '
+        '<b>relative to the fastest model</b> so the comparison is objective. Configured RPM is a per-deployment '
+        'default that can be raised through a quota request; it is not a vendor-wide maximum.</p>')
     out.append('<table><tr><th class="label">Model</th><th class="label">Region &amp; SKU</th>'
                '<th class="label">Configured capacity</th>'
                '<th class="label">Measured latency<br><span class="muted small">(avg · ×fastest)</span></th>'
@@ -1609,13 +1635,8 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
             lat_txt = "—"
         win = " win" if m == fastest else ""
 
-        # Region & SKU (prefer the actually-measured deployment shape).
-        if am:
-            ver = f' · {esc(am["deployed_version"])}' if am.get("deployed_version") else ""
-            reg_sku = f'{esc(am.get("region","—"))} · {esc(am.get("sku","—"))}{ver}'
-        else:
-            regions = e.get("regions") or []
-            reg_sku = "<br>".join(esc(r) for r in regions) if regions else "—"
+        # Region & SKU: official documented coverage first, then measured fallback.
+        reg_sku = esc(availability_region_sku(e, am))
 
         # Configured capacity — quantified RPM if known.
         rpm = am.get("configured_rpm")
@@ -1631,8 +1652,8 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
         thru = e.get("throughput")
         thru_html = f'<div class="muted small">{esc(thru)}</div>' if thru else ""
 
-        src_url = e.get("source_url", "")
-        src = esc(e.get("source", "—"))
+        src_url = e.get("availability_source_url") or e.get("source_url", "")
+        src = esc(e.get("availability_source") or e.get("source", "—"))
         src_html = f'<a href="{esc(src_url)}" rel="noreferrer">{src}</a>' if src_url else src
         out.append(
             f'<tr><td class="label"><span class="swatch" style="background:{colors[m]}"></span>{esc(m)}</td>'
@@ -1645,8 +1666,8 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
 
     cap_note = ref.get("capacity_note")
     if cap_note:
-        out.append(f'<div class="callout"><b>About the configured capacity:</b> {esc(cap_note)} All four '
-                   'models were called sequentially (one request at a time) under these limits, so the '
+        out.append(f'<div class="callout"><b>About the configured capacity:</b> {esc(cap_note)} All models '
+                   'were called sequentially (one request at a time) under these limits, so the '
                    'measured latency reflects single-request responsiveness, not throughput under '
                    'concurrency. gpt-image-2 also honored <code>quality="high"</code> on every generation, '
                    'which adds compute time and is part of why its measured latency is the highest here; '
@@ -2459,11 +2480,12 @@ def md_pricing_section(ref: dict, models_order: list[str]) -> str:
 def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -> str:
     ref_models = ref.get("models") or {}
     out = ["## 4 · Default Capacity and Observed Performance", "",
-           "Capacity, throughput, latency and region coverage. The **configured capacity** column shows the "
-           "actual request-per-minute (RPM) limit set on each deployment in the test subscription (Global "
-           "Standard, Sweden Central) — the same capacity that produced the latencies — and latency is shown "
-           "both in seconds and **relative to the fastest model**. Configured RPM is a per-deployment "
-           "default that can be raised through a quota request; it is not a vendor-wide maximum.", ""]
+           "Capacity, throughput, latency and region coverage. The **Region & SKU** column uses official Azure "
+           "documentation for Global Standard availability, while the **configured capacity** column shows the "
+           "actual request-per-minute (RPM) limit configured on each deployment in this test subscription (the "
+           "same limits that produced the measured latencies). Latency is shown both in seconds and **relative "
+           "to the fastest model**. Configured RPM is a per-deployment default that can be raised through a "
+           "quota request; it is not a vendor-wide maximum.", ""]
     nums = {m: v for m, v in latency.items() if isinstance(v, (int, float))}
     fastest = min(nums, key=nums.get) if nums else None
     fastest_lat = nums[fastest] if fastest else None
@@ -2479,12 +2501,7 @@ def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -
                 lat_txt = f"**{lat_txt}**"
         else:
             lat_txt = "—"
-        if am:
-            ver = f" · {am['deployed_version']}" if am.get("deployed_version") else ""
-            reg_sku = f"{am.get('region', '—')} · {am.get('sku', '—')}{ver}"
-        else:
-            regions = e.get("regions") or []
-            reg_sku = ", ".join(regions) if regions else "—"
+        reg_sku = availability_region_sku(e, am)
         rpm = am.get("configured_rpm")
         if isinstance(rpm, (int, float)):
             limit = am.get("limit_type", "")
@@ -2493,8 +2510,8 @@ def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -
             cap = "see published default →"
         thru = e.get("throughput")
         quota_txt = (e.get("quota", "—") or "—") + (f" · {thru}" if thru else "")
-        src_url = e.get("source_url", "")
-        src = e.get("source", "—")
+        src_url = e.get("availability_source_url") or e.get("source_url", "")
+        src = e.get("availability_source") or e.get("source", "—")
         src_md = f"[{md_cell(src)}]({src_url})" if src_url else md_cell(src)
         rows.append([md_cell(m), md_cell(reg_sku), md_cell(cap), md_cell(lat_txt),
                      md_cell(quota_txt), src_md])
@@ -2503,7 +2520,7 @@ def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -
 
     cap_note = ref.get("capacity_note")
     if cap_note:
-        out.append("> **About the configured capacity:** " + md_text(cap_note) + " All four models were "
+        out.append("> **About the configured capacity:** " + md_text(cap_note) + " All models were "
                    "called sequentially (one request at a time) under these limits, so the measured latency "
                    "reflects single-request responsiveness, not throughput under concurrency. gpt-image-2 "
                    'also honored `quality="high"` on every generation, which adds compute time and is part '

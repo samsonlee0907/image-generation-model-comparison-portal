@@ -71,6 +71,8 @@ QUALITY_RANK = {"low": 0, "medium": 1, "high": 2}
 QUALITY_KNOB_FAMILIES = {"gpt-image", "flux"}
 DEFAULT_REFERENCE = REPO_ROOT / "test-reports" / "results" / "ImageEditTest" / "ReferenceImage.png"
 DEFAULT_POLL_TIMEOUT = 1200  # seconds per run
+DEFAULT_MISSING_RETRY_ATTEMPTS = 6
+DEFAULT_MISSING_RETRY_DELAY = 1.5
 
 # Where the portal writes its run exports, and where --clean moves prior runs.
 EXPORT_ROOT = REPO_ROOT / "portal-exports"
@@ -160,6 +162,53 @@ def _wait_for_run(runs: RunManager, run_id: str, timeout: float) -> dict:
         time.sleep(2.0)
 
 
+def _missing_generation_models(run: dict) -> list[str]:
+    missing: list[str] = []
+    results = run.get("results") or {}
+    for name in run.get("order") or []:
+        row = results.get(name) or {}
+        if not row.get("generation"):
+            missing.append(name)
+    return missing
+
+
+def _retry_missing_images(
+    runs: RunManager,
+    run_id: str,
+    config: AppConfig,
+    timeout: float,
+    retry_attempts: int,
+    retry_delay: float,
+) -> dict:
+    run = runs.get_run(run_id)
+    missing = _missing_generation_models(run)
+    if not missing or retry_attempts <= 0:
+        return run
+
+    cfg = config.to_dict()
+    for attempt in range(1, retry_attempts + 1):
+        if not missing:
+            break
+        print(
+            f"  retry pass {attempt}/{retry_attempts}: missing image for "
+            + ", ".join(missing),
+            flush=True,
+        )
+        for model_name in list(missing):
+            row = (run.get("results") or {}).get(model_name) or {}
+            status = row.get("status") or "Unknown"
+            err = row.get("error")
+            detail = f" ({err})" if err else ""
+            print(f"    - retry {model_name}: {status}{detail}", flush=True)
+            runs.retry_generation(run_id, cfg, model_name)
+            run = _wait_for_run(runs, run_id, timeout)
+            if retry_delay > 0:
+                time.sleep(retry_delay)
+        run = runs.get_run(run_id)
+        missing = _missing_generation_models(run)
+    return run
+
+
 def _run_generation(
     runs: RunManager,
     config: AppConfig,
@@ -167,6 +216,8 @@ def _run_generation(
     preset_key: str,
     quality: str,
     timeout: float,
+    retry_attempts: int,
+    retry_delay: float,
 ) -> dict:
     preset = BENCHMARK_PRESETS[preset_key]
     payload = {
@@ -181,6 +232,12 @@ def _run_generation(
     }
     run_id = runs.create_run(payload)["runId"]
     _wait_for_run(runs, run_id, timeout)
+    final_run = _retry_missing_images(runs, run_id, config, timeout, retry_attempts, retry_delay)
+    missing = _missing_generation_models(final_run)
+    if missing:
+        raise RuntimeError(
+            f"Missing generated image after retries ({len(missing)} model(s)): {', '.join(missing)}"
+        )
     return runs.export_results(run_id)
 
 
@@ -193,6 +250,8 @@ def _run_edit(
     reference_data_url: str,
     reference_name: str,
     timeout: float,
+    retry_attempts: int,
+    retry_delay: float,
 ) -> dict:
     preset = BENCHMARK_PRESETS[preset_key]
     payload = {
@@ -208,6 +267,12 @@ def _run_edit(
     }
     run_id = runs.create_run(payload)["runId"]
     _wait_for_run(runs, run_id, timeout)
+    final_run = _retry_missing_images(runs, run_id, config, timeout, retry_attempts, retry_delay)
+    missing = _missing_generation_models(final_run)
+    if missing:
+        raise RuntimeError(
+            f"Missing generated image after retries ({len(missing)} model(s)): {', '.join(missing)}"
+        )
     return runs.export_results(run_id)
 
 
@@ -218,8 +283,15 @@ def _run_safety(runs: RunManager, config: AppConfig, models: list[dict], timeout
     return runs.export_results(run_id)
 
 
-def _print_plan(qualities: list[str], skip_edit: bool, skip_safety: bool,
-                models: list[dict], best_tier: str | None, multi_tier: bool) -> None:
+def _print_plan(
+    qualities: list[str],
+    skip_edit: bool,
+    skip_safety: bool,
+    models: list[dict],
+    best_tier: str | None,
+    multi_tier: bool,
+    retry_attempts: int,
+) -> None:
     def names(subset: list[dict]) -> str:
         return ", ".join(m.get("name") or m.get("deployment") or "model" for m in subset) or "(none)"
 
@@ -245,6 +317,7 @@ def _print_plan(qualities: list[str], skip_edit: bool, skip_safety: bool,
             print(f"  [{quality}] edit      : {', '.join(EDIT_PRESETS)} x [{names(members)}]")
     if not skip_safety:
         print("  safety      : full set of tests (run once)")
+    print(f"  Retries     : up to {retry_attempts} extra pass(es) for any model missing image output")
     print(f"  Image cells : {gen_cells} generation, {edit_cells} edit "
           f"(each model that lacks a quality knob is generated once, not per tier)")
 
@@ -277,6 +350,18 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=DEFAULT_POLL_TIMEOUT,
         help=f"Seconds to wait for each run to finish (default: {DEFAULT_POLL_TIMEOUT}).",
+    )
+    parser.add_argument(
+        "--retry-missing-attempts",
+        type=int,
+        default=DEFAULT_MISSING_RETRY_ATTEMPTS,
+        help=f"Retry passes for models that finish without a generated image (default: {DEFAULT_MISSING_RETRY_ATTEMPTS}).",
+    )
+    parser.add_argument(
+        "--retry-missing-delay",
+        type=float,
+        default=DEFAULT_MISSING_RETRY_DELAY,
+        help=f"Seconds to pause between per-model retries (default: {DEFAULT_MISSING_RETRY_DELAY}).",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print the plan and exit without running.")
     args = parser.parse_args(argv)
@@ -323,7 +408,15 @@ def main(argv: list[str] | None = None) -> int:
         print("Pass --reference <path> or --skip-edit.", file=sys.stderr)
         return 2
 
-    _print_plan(qualities, args.skip_edit, args.skip_safety, models, best_tier, multi_tier)
+    _print_plan(
+        qualities,
+        args.skip_edit,
+        args.skip_safety,
+        models,
+        best_tier,
+        multi_tier,
+        max(0, int(args.retry_missing_attempts)),
+    )
     if args.clean:
         _clean_exports(dry_run=args.dry_run)
     if args.dry_run:
@@ -345,7 +438,16 @@ def main(argv: list[str] | None = None) -> int:
                 label = f"generation/{preset_key} @ {quality}"
                 print(f"\n=== {label} ===", flush=True)
                 try:
-                    result = _run_generation(runs, config, tier_models, preset_key, quality, args.poll_timeout)
+                    result = _run_generation(
+                        runs,
+                        config,
+                        tier_models,
+                        preset_key,
+                        quality,
+                        args.poll_timeout,
+                        max(0, int(args.retry_missing_attempts)),
+                        max(0.0, float(args.retry_missing_delay)),
+                    )
                     print(f"  exported -> {result.get('folder')}")
                     exports.append(result.get("folder", ""))
                 except Exception as exc:  # noqa: BLE001 - report and continue
@@ -365,6 +467,8 @@ def main(argv: list[str] | None = None) -> int:
                             reference_data_url,
                             reference_name,
                             args.poll_timeout,
+                            max(0, int(args.retry_missing_attempts)),
+                            max(0.0, float(args.retry_missing_delay)),
                         )
                         print(f"  exported -> {result.get('folder')}")
                         exports.append(result.get("folder", ""))
