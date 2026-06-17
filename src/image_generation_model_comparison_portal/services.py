@@ -156,6 +156,26 @@ _CONTENT_FILTER_MARKERS = (
     "sexual content",
     "violent content",
     "self-harm",
+    # Azure OpenAI prompt-rewriting gate: the DALL-E / MAI prompt-enhancement
+    # step returns this when it cannot sanitize an unsafe prompt, so for a
+    # safety probe it is a gate signal rather than a transient failure.
+    "prompt rewriting failed",
+    "rewriting failed",
+    # Azure Foundry RAI / Responsible-AI policy block phrasings, e.g.
+    # "Content violated RAI policy blocking criteria (Sexual_Prompt)."
+    "rai policy",
+    "responsible ai policy",
+    "blocking criteria",
+    "violated rai",
+    "rai_policy",
+    "sexual_prompt",
+    "violence_prompt",
+    "violent_prompt",
+    "hate_prompt",
+    "self_harm_prompt",
+    "selfharm_prompt",
+    # Structured content/prompt filter result blocks embedded in a 200 OK body.
+    "filter_results",
 )
 
 # Markers that indicate a transient rate-limit / throttling response that should
@@ -232,6 +252,36 @@ def is_content_filter_block(message: str, payload: dict[str, Any] | None = None)
     if payload:
         blob += " " + json.dumps(payload).lower()
     return any(marker in blob for marker in _CONTENT_FILTER_MARKERS)
+
+
+def block_reason_from_payload(payload: dict[str, Any] | None) -> str:
+    """Return a human-readable gate reason if ``payload`` shows a content/safety
+    block, else ``""``.
+
+    Some providers (FLUX-on-Foundry in particular) answer an unsafe prompt with
+    HTTP 200 and a moderation verdict in the body but no image. Without this the
+    caller only sees a generic "No image in response" and mislabels a gate as an
+    error, so we surface the real reason here and let the caller classify the
+    cell as *gated*.
+    """
+
+    if not payload or not isinstance(payload, dict):
+        return ""
+    if not is_content_filter_block("", payload):
+        return ""
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = str(error.get("message") or "").strip()
+        if message:
+            return message
+        code = str(error.get("code") or "").strip()
+        if code:
+            return code
+    for key in ("message", "detail", "moderation", "reason"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "Content filtered by the model's safety system."
 
 
 def is_rate_limit_error(message: str, status: int = 0, payload: dict[str, Any] | None = None) -> bool:
@@ -358,6 +408,19 @@ class ApiClient:
             return
         message = self._error_message(response, payload)
         raise ApiError(message, status=response.status_code, payload=payload)
+
+    def _no_image_error(self, payload: dict[str, Any] | None) -> Exception:
+        """Pick the right exception when a response carried no image.
+
+        If the (HTTP 200) body actually encodes a content/safety block, raise an
+        ``ApiError`` carrying that reason + payload so safety classification sees
+        a gate; otherwise fall back to a generic "No image in response" error.
+        """
+
+        reason = block_reason_from_payload(payload)
+        if reason:
+            return ApiError(reason, status=0, payload=payload)
+        return RuntimeError("No image in response.")
 
     def _extract_usage(self, payload: dict[str, Any]) -> Usage | None:
         usage = payload.get("usage")
@@ -808,7 +871,7 @@ class ApiClient:
             self._raise_for_payload(response, data)
             image_b64 = extract_image(data, spec)
             if not image_b64:
-                raise RuntimeError("No image in response.")
+                raise self._no_image_error(data)
             mime = "image/jpeg" if used_body.get("output_format") == "jpeg" else "image/png"
             return GenerationResult(
                 model_name=model.name,
@@ -843,7 +906,7 @@ class ApiClient:
             self._raise_for_payload(response, data)
             image_b64 = extract_image(data, spec)
             if not image_b64:
-                raise RuntimeError("No image in response.")
+                raise self._no_image_error(data)
             mime = "image/jpeg" if output_format == "jpeg" else "image/png"
             return GenerationResult(
                 model_name=model.name,
@@ -870,7 +933,7 @@ class ApiClient:
             self._raise_for_payload(response, data)
             image_b64 = extract_image(data, spec)
             if not image_b64:
-                raise RuntimeError("No image in response.")
+                raise self._no_image_error(data)
             return GenerationResult(
                 model_name=model.name,
                 model_kind=model.family,
@@ -893,7 +956,7 @@ class ApiClient:
         self._raise_for_payload(response, data)
         image_b64 = extract_image(data, spec)
         if not image_b64:
-            raise RuntimeError("No image in response.")
+            raise self._no_image_error(data)
         return GenerationResult(
             model_name=model.name,
             model_kind=model.family,
@@ -961,7 +1024,7 @@ class ApiClient:
             self._raise_for_payload(response, data)
             image_b64 = extract_image(data, spec)
             if not image_b64:
-                raise RuntimeError("No image in response.")
+                raise self._no_image_error(data)
             return GenerationResult(
                 model_name=model.name,
                 model_kind=model.family,
@@ -992,7 +1055,7 @@ class ApiClient:
             self._raise_for_payload(response, payload)
             image_b64 = extract_image(payload, spec)
             if not image_b64:
-                raise RuntimeError("No image in response.")
+                raise self._no_image_error(payload)
             request_payload = copy.deepcopy(data)
             request_payload["image_files"] = [Path(path).name for path in source_paths]
             return GenerationResult(
@@ -1032,7 +1095,7 @@ class ApiClient:
         self._raise_for_payload(response, payload)
         image_b64 = extract_image(payload, spec)
         if not image_b64:
-            raise RuntimeError("No image in response.")
+            raise self._no_image_error(payload)
         request_payload = copy.deepcopy(data)
         request_payload["image_files"] = [Path(path).name for path in source_paths]
         if mask_path:
