@@ -596,6 +596,7 @@ class MainWindow(QMainWindow):
                     self.mask_path,
                     self.edit_size.currentText(),
                     self.output_format.currentText(),
+                    self.text_quality.currentText(),
                 )
 
     def _clear_results_view(self) -> None:

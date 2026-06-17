@@ -926,6 +926,7 @@ class RunManager:
             run["maskPath"],
             run["editSize"],
             run["outputFormat"],
+            run["textQuality"],
             on_rate_limit,
         )
 

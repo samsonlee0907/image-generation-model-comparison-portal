@@ -977,6 +977,7 @@ class ApiClient:
         mask_path: str | None,
         size: str,
         output_format: str,
+        quality: str | None = None,
         on_rate_limit: Callable[..., None] | None = None,
     ) -> GenerationResult:
         return self._call_with_retry(
@@ -987,6 +988,7 @@ class ApiClient:
             mask_path,
             size,
             output_format,
+            quality,
             on_rate_limit=on_rate_limit,
         )
 
@@ -998,6 +1000,7 @@ class ApiClient:
         mask_path: str | None,
         size: str,
         output_format: str,
+        quality: str | None = None,
     ) -> GenerationResult:
         started = time.perf_counter()
         spec = get_provider(model.family)
@@ -1018,8 +1021,14 @@ class ApiClient:
             for index, path in enumerate(source_paths, start=1):
                 key = "input_image" if index == 1 else f"input_image_{index}"
                 body[key] = base64.b64encode(Path(path).read_bytes()).decode("ascii")
+            # Scale render effort with the requested quality tier so FLUX edits
+            # honor the console quality knob just like text-to-image runs. The
+            # hosted pipeline may fix these internally; the fallback then drops
+            # them and retries.
+            quality_params = flux_quality_params(quality)
+            body.update(quality_params)
             response, data, used_body = self._post_with_fallback(
-                url, spec.auth, body, ["output_format"], timeout
+                url, spec.auth, body, [*quality_params.keys(), "output_format"], timeout
             )
             self._raise_for_payload(response, data)
             image_b64 = extract_image(data, spec)
@@ -1078,7 +1087,7 @@ class ApiClient:
             "model": body_model,
             "size": size,
             "n": "1",
-            "quality": "high",
+            "quality": (quality or "high"),
         }
         files: list[tuple[str, tuple[str, bytes, str]]] = []
         files.append(("image[]", ("source.png", Path(source_paths[0]).read_bytes(), "image/png")))
