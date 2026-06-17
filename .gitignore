@@ -6,6 +6,7 @@ __pycache__/
 node_modules/
 *.egg-info/
 portal-exports/
+portal-exports-archive/
 
 # Raw test-result dataset is kept on disk but out of git (large binaries).
 # The aggregated report (test-reports/aggregate-report.html) is committed instead.

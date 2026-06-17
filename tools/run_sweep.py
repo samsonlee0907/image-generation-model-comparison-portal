@@ -23,6 +23,7 @@ Usage::
     python tools/run_sweep.py --qualities high     # only the high tier
     python tools/run_sweep.py --skip-edit          # generation + safety only
     python tools/run_sweep.py --skip-safety        # generation + edit only
+    python tools/run_sweep.py --clean              # archive prior runs, then sweep fresh
     python tools/run_sweep.py --dry-run            # print the plan, run nothing
 
 The saved portal config (``~/.image_generation_model_comparison_portal/config.json``)
@@ -34,8 +35,10 @@ from __future__ import annotations
 
 import argparse
 import base64
+import shutil
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -69,9 +72,60 @@ QUALITY_KNOB_FAMILIES = {"gpt-image", "flux"}
 DEFAULT_REFERENCE = REPO_ROOT / "test-reports" / "results" / "ImageEditTest" / "ReferenceImage.png"
 DEFAULT_POLL_TIMEOUT = 1200  # seconds per run
 
+# Where the portal writes its run exports, and where --clean moves prior runs.
+EXPORT_ROOT = REPO_ROOT / "portal-exports"
+EXPORT_CATEGORIES = ("generation", "edit", "safety")
+ARCHIVE_ROOT = REPO_ROOT / "portal-exports-archive"
+
 
 def _has_quality_knob(model: dict) -> bool:
     return (model.get("family") or "").strip() in QUALITY_KNOB_FAMILIES
+
+
+def _clean_exports(dry_run: bool = False) -> None:
+    """Move any existing portal-exports run folders into a timestamped archive.
+
+    The aggregated report globs ``portal-exports/**/results.json`` recursively, so
+    leaving older runs in place would mix model sets (e.g. a 4-model run alongside
+    a fresh 6-model run). This archives prior runs *outside* the results tree so a
+    sweep starts from a clean slate without deleting anything.
+    """
+    pending: list[tuple[str, Path]] = []
+    for category in EXPORT_CATEGORIES:
+        cat_dir = EXPORT_ROOT / category
+        if not cat_dir.is_dir():
+            continue
+        for child in sorted(cat_dir.iterdir()):
+            pending.append((category, child))
+
+    if not pending:
+        print("Clean data : portal-exports already empty — nothing to archive.")
+        # Still ensure the category folders exist for the upcoming run.
+        if not dry_run:
+            for category in EXPORT_CATEGORIES:
+                (EXPORT_ROOT / category).mkdir(parents=True, exist_ok=True)
+        return
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    dest_root = ARCHIVE_ROOT / stamp
+    counts: dict[str, int] = {}
+    for category, child in pending:
+        counts[category] = counts.get(category, 0) + 1
+    summary = ", ".join(f"{counts[c]} {c}" for c in EXPORT_CATEGORIES if counts.get(c))
+    if dry_run:
+        print(f"Clean data : would archive {len(pending)} run folder(s) ({summary}) -> "
+              f"{dest_root.relative_to(REPO_ROOT)}")
+        return
+
+    print(f"Clean data : archiving {len(pending)} run folder(s) ({summary}) -> "
+          f"{dest_root.relative_to(REPO_ROOT)}")
+    for category, child in pending:
+        target_dir = dest_root / category
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(child), str(target_dir / child.name))
+    # Recreate empty category folders so the run writes into a fresh tree.
+    for category in EXPORT_CATEGORIES:
+        (EXPORT_ROOT / category).mkdir(parents=True, exist_ok=True)
 
 
 def _normalize_quality(value: str) -> str:
@@ -207,6 +261,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-edit", action="store_true", help="Skip the image-edit scenarios.")
     parser.add_argument("--skip-safety", action="store_true", help="Skip the content-safety battery.")
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Archive any existing portal-exports run folders into portal-exports-archive/<UTC stamp>/ "
+             "before the sweep, so the report is built only from this fresh run (non-destructive).",
+    )
+    parser.add_argument(
         "--reference",
         type=Path,
         default=DEFAULT_REFERENCE,
@@ -264,6 +324,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     _print_plan(qualities, args.skip_edit, args.skip_safety, models, best_tier, multi_tier)
+    if args.clean:
+        _clean_exports(dry_run=args.dry_run)
     if args.dry_run:
         return 0
 

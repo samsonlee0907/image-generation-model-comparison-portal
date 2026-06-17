@@ -499,4 +499,5 @@ def sample_models() -> list[ModelConfig]:
         ModelConfig(enabled=True, family="mai", deployment="MAI-Image-2"),
         ModelConfig(enabled=False, family="mai", deployment="MAI-Image-2e"),
         ModelConfig(enabled=False, family="mai", deployment="MAI-Image-2.5"),
+        ModelConfig(enabled=False, family="mai", deployment="MAI-Image-2.5-Flash"),
     ]
