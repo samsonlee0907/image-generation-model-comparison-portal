@@ -21,6 +21,19 @@
       "source_url": "https://azure.microsoft.com/en-us/pricing/details/azure-openai/#pricing",
       "confidence": "high (Azure OpenAI pricing page)"
     },
+    "gpt-image-1.5": {
+      "vendor": "Azure OpenAI",
+      "pricing_model": "per_token",
+      "rates": {"text_input_per_1m": 5.0, "image_input_per_1m": 8.0, "image_output_per_1m": 32.0,
+                "text_output_per_1m": 10.0, "cached_text_input_per_1m": 1.25, "cached_image_input_per_1m": 2.0},
+      "deployment": "Standard / Global Standard (Azure OpenAI)",
+      "quota": "Per-subscription TPM/RPM, tiered; raise via an Azure quota-increase request",
+      "throughput": "Image deployments start with a modest images-per-minute allowance that scales with assigned TPM/RPM quota",
+      "regions": ["East US", "East US 2", "West US 3", "Sweden Central"],
+      "source": "Azure OpenAI pricing (GPT-Image-1.5 Global)",
+      "source_url": "https://azure.microsoft.com/en-us/pricing/details/azure-openai/",
+      "confidence": "high (Azure OpenAI pricing page)"
+    },
     "flux-2-pro": {
       "vendor": "Black Forest Labs (Azure AI Foundry)",
       "pricing_model": "per_megapixel",
@@ -59,6 +72,19 @@
       "regions": ["Microsoft Foundry first-party (Global Standard) — see Foundry region matrix"],
       "azure_measured": {"region": "Sweden Central", "sku": "GlobalStandard", "configured_rpm": 2, "deployed_version": "2026-06-02", "limit_type": "RPM only"},
       "source": "Microsoft Foundry — new MAI models (Build 2026), MAI-Image-2.5 Foundry model card",
+      "source_url": "https://azurefeeds.com/2026/06/03/new-mai-models-in-microsoft-foundry-across-text-image-voice-and-speech/",
+      "confidence": "high (official Foundry model-card pricing)"
+    },
+    "MAI-Image-2.5-Flash": {
+      "vendor": "Microsoft AI (Foundry)",
+      "pricing_model": "per_token",
+      "rates": {"text_input_per_1m": 1.75, "image_input_per_1m": 1.75, "image_output_per_1m": 33.0},
+      "deployment": "Microsoft Foundry (first-party MAI) — Flash tier for faster, cheaper runs",
+      "quota": "Foundry first-party quota; managed per subscription (see model card)",
+      "throughput": "Flash variant targets fast, scalable production workloads; best price-to-performance ELO per Microsoft",
+      "regions": ["Microsoft Foundry first-party (Global Standard) — see Foundry region matrix"],
+      "pricing_note": "Pricing starts at $1.75/1M tokens for text and image input (blended) and $33/1M tokens for image output.",
+      "source": "Microsoft Foundry — new MAI models (Build 2026), MAI-Image-2.5 Flash Foundry model card",
       "source_url": "https://azurefeeds.com/2026/06/03/new-mai-models-in-microsoft-foundry-across-text-image-voice-and-speech/",
       "confidence": "high (official Foundry model-card pricing)"
     }

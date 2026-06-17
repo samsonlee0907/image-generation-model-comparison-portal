@@ -1,6 +1,6 @@
 # Image Generation Model Comparison
 
-Aggregated report generated 2026-06-17 18:17 · 6 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-17 18:39 · 6 models · evaluator `gpt-5.4`.
 
 Every model was put through the **same** set of tests: **12** image-generation themes, **12** image-edit scenarios, and a **144**-cell content-safety probe (harm categories × severity levels L1–L5+). Each section explains what its runs test before showing the scores.
 
@@ -24,8 +24,8 @@ One row per model. **Generation / edit quality** is the average evaluator score 
 | flux-2-pro | 6.5 | 8.2 | 67% | **≈ $0.030** 🏆 | **30s** 🏆 |
 | MAI-Image-2 | 7.8 | N/A | 83% | ≈ $0.044 | 36s |
 | MAI-Image-2.5 | 7.5 | **9.2** 🏆 | 83% | ≈ $0.062 | 53s |
-| MAI-Image-2.5-Flash | 7.8 | 9.1 | 83% | — | 35s |
-| gpt-image-1.5 | 8.2 | 7.9 | 100% | — | 34s |
+| MAI-Image-2.5-Flash | 7.8 | 9.1 | 83% | ≈ $0.043 | 35s |
+| gpt-image-1.5 | 8.2 | 7.9 | 100% | ≈ $0.042 | 34s |
 
 
 ## 1 · Image Generation Quality (including editing)
@@ -825,8 +825,8 @@ Published list pricing for each model, gathered from Azure pricing pages and Mic
 | flux-2-pro | Black Forest Labs (Azure AI Foundry) | Per megapixel | $0.03 first MP · $0.015 add'l MP · $0.015 ref-img/MP | **≈ $0.030** | [Azure AI Foundry Models pricing — Black Forest Labs](https://azure.microsoft.com/en-us/pricing/details/ai-foundry-models/black-forest-labs/) (high) |
 | MAI-Image-2 | Microsoft AI (Foundry) | Per token | $5 text-in · $33 image-out / 1M tokens | ≈ $0.044 | [Microsoft AI blog — 3 new MAI models available in Foundry](https://microsoft.ai/news/today-were-announcing-3-new-world-class-mai-models-available-in-foundry/) (high (official Microsoft AI blog)) |
 | MAI-Image-2.5 | Microsoft AI (Foundry) | Per token | $5 text-in · $8 image-in · $47 image-out / 1M tokens | ≈ $0.062 | [Microsoft Foundry — new MAI models (Build 2026), MAI-Image-2.5 Foundry model card](https://azurefeeds.com/2026/06/03/new-mai-models-in-microsoft-foundry-across-text-image-voice-and-speech/) (high (official Foundry model-card pricing)) |
-| MAI-Image-2.5-Flash | _No reference pricing on file._ | — | — | — | — |
-| gpt-image-1.5 | _No reference pricing on file._ | — | — | — | — |
+| MAI-Image-2.5-Flash | Microsoft AI (Foundry) | Per token | $1.75 text-in · $1.75 image-in · $33 image-out / 1M tokens | ≈ $0.043 | [Microsoft Foundry — new MAI models (Build 2026), MAI-Image-2.5 Flash Foundry model card](https://azurefeeds.com/2026/06/03/new-mai-models-in-microsoft-foundry-across-text-image-voice-and-speech/) (high (official Foundry model-card pricing)) |
+| gpt-image-1.5 | Azure OpenAI | Per token | $5 text-in · $8 image-in · $32 image-out / 1M tokens | ≈ $0.042 | [Azure OpenAI pricing (GPT-Image-1.5 Global)](https://azure.microsoft.com/en-us/pricing/details/azure-openai/) (high (Azure OpenAI pricing page)) |
 
 > **How the per-image estimate is built:** token-priced models are charged on ≈1300 image-output tokens + ≈120 prompt tokens per image; FLUX uses its published per-megapixel rate (1024² ≈ 1 MP). For token-billed models whose API exposes a quality tier (GPT-Image-2), the number of billed image-output tokens rises with the quality setting, so the `high` setting used in this test set costs **more** per image than `medium`/`low`; this estimate applies one representative token count to every token-priced model, so read it as a mid-quality baseline. FLUX and the MAI models take no quality parameter, so their cost is unaffected by it. Token-metered models do not publish a fixed tokens-per-image figure, so the 'est. cost / 1024x1024 image' column applies these representative token counts uniformly to every token-priced model for a like-for-like comparison. Real cost scales with resolution, quality and prompt length. A cheaper **MAI-Image-2.5 Flash** tier also exists ($1.75/1M in · $33/1M out). GPT-Image-2 also offers cheaper cached-input rates ($1.25/1M cached text, $2/1M cached image) that are not reflected in the per-image estimate above.
 
@@ -841,8 +841,8 @@ Capacity, throughput, latency and region coverage. The **configured capacity** c
 | flux-2-pro | Sweden Central · GlobalStandard · FLUX.2-pro v1 | **4 req/min (RPM)** (RPM only) | **30.3s · 1.0×** | Global Standard shared quota pool per subscription (not per-region) · Per-subscription RPM/TPM against the shared Global Standard pool; confirm the model SKU default in the portal | [Azure AI Foundry Models pricing — Black Forest Labs](https://azure.microsoft.com/en-us/pricing/details/ai-foundry-models/black-forest-labs/) |
 | MAI-Image-2 | Sweden Central · GlobalStandard · 2026-02-20 | **9 req/min (RPM)** (RPM only) | 36.5s · 1.2× | Foundry first-party quota; managed per subscription (see model card) · Optimized for high-volume / always-on workloads; ~2x faster than the prior generation per Microsoft | [Microsoft AI blog — 3 new MAI models available in Foundry](https://microsoft.ai/news/today-were-announcing-3-new-world-class-mai-models-available-in-foundry/) |
 | MAI-Image-2.5 | Sweden Central · GlobalStandard · 2026-06-02 | **2 req/min (RPM)** (RPM only) | 52.5s · 1.7× | Foundry first-party quota; managed per subscription (see model card) · Flash variant targets fast, scalable production workloads; best price-to-performance ELO per Microsoft | [Microsoft Foundry — new MAI models (Build 2026), MAI-Image-2.5 Foundry model card](https://azurefeeds.com/2026/06/03/new-mai-models-in-microsoft-foundry-across-text-image-voice-and-speech/) |
-| MAI-Image-2.5-Flash | — | see published default → | 35.1s · 1.2× | — | — |
-| gpt-image-1.5 | — | see published default → | 34.0s · 1.1× | — | — |
+| MAI-Image-2.5-Flash | Microsoft Foundry first-party (Global Standard) — see Foundry region matrix | see published default → | 35.1s · 1.2× | Foundry first-party quota; managed per subscription (see model card) · Flash variant targets fast, scalable production workloads; best price-to-performance ELO per Microsoft | [Microsoft Foundry — new MAI models (Build 2026), MAI-Image-2.5 Flash Foundry model card](https://azurefeeds.com/2026/06/03/new-mai-models-in-microsoft-foundry-across-text-image-voice-and-speech/) |
+| gpt-image-1.5 | East US, East US 2, West US 3, Sweden Central | see published default → | 34.0s · 1.1× | Per-subscription TPM/RPM, tiered; raise via an Azure quota-increase request · Image deployments start with a modest images-per-minute allowance that scales with assigned TPM/RPM quota | [Azure OpenAI pricing (GPT-Image-1.5 Global)](https://azure.microsoft.com/en-us/pricing/details/azure-openai/) |
 
 > **About the configured capacity:** azure_measured values are the request-per-minute (RPM) limits actually configured on the test deployments (Global Standard, Sweden Central) at the time the latencies were recorded, read from Azure. They are the per-deployment defaults for this subscription and can be raised via a quota request; they are not vendor-wide maximums. These image deployments are RPM-limited and do not expose a separate TPM bucket. All four models were called sequentially (one request at a time) under these limits, so the measured latency reflects single-request responsiveness, not throughput under concurrency. gpt-image-2 also honored `quality="high"` on every generation, which adds compute time and is part of why its measured latency is the highest here; FLUX and the MAI models ignore the quality parameter.
 
