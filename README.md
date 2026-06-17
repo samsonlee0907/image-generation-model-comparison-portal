@@ -6,6 +6,8 @@ Models are onboarded **flexibly**: instead of choosing from a fixed list of hard
 pairs, you pick a routing **family** and enter your own deployment / model identifier — so new models
 such as `MAI-Image-2.5` work without any code change.
 
+> 📊 **See the models compared:** read the latest [aggregated comparison report](test-reports/aggregate-report.md) for a quick, GitHub-rendered view of how every model behaves on image-generation quality, content safety, pricing, and capacity — no download required.
+
 ## What It Does
 
 - Compares multiple image-generation deployments in one run.
@@ -20,7 +22,7 @@ such as `MAI-Image-2.5` work without any code change.
 - Exports generated images and evaluation results to PPTX.
 - Exports generated images plus a `results.json` manifest to a local folder for notebook analysis.
 - Exports content-safety probe outcomes (gating results + ungated images) to a `safety-results.json` manifest.
-- Aggregates exported generation, image-edit, and **content-safety** runs into one self-contained HTML comparison report (plus an optional GitHub-readable Markdown export) via `tools/aggregate_report.py`.
+- Aggregates exported generation, image-edit, and **content-safety** runs into one [comparison report](test-reports/aggregate-report.md) (self-contained HTML + GitHub-readable Markdown) via `tools/aggregate_report.py`.
 - Retries rate-limited (HTTP 429, 60s backoff) and transient (502/503/504, dropped connections, timeouts; short backoff) requests automatically.
 
 ## Documentation
@@ -206,107 +208,6 @@ portal-exports/safety-20240101-120000-abc123/
   `imagePath` (relative path into `images/`, or `null` for gated/errored cells).
 
 The `portal-exports/` folder is git-ignored.
-
-## Aggregated Comparison Report
-
-Once you have collected several exported runs, `tools/aggregate_report.py` rolls
-them all up into a **single self-contained HTML report** that compares every
-model across all three test categories at once — image generation, image edit,
-and the content-safety guardrail.
-
-```
-python tools/aggregate_report.py \
-  --results-dir test-reports/results \
-  --out test-reports/aggregate-report.html \
-  --md-out test-reports/aggregate-report.md
-```
-
-The script scans the results tree for both `results.json` (generation/edit) and
-`safety-results.json` (safety) exports and produces a report organized into an
-executive scorecard plus **four comparison categories**:
-
-- an **executive scorecard** (per-model generation quality, edit quality, the
-  severe-prompt **L4–L5+ gating rate**, an estimated **price per image**, and the
-  **measured latency** from this test set; edit quality is shown as **N/A** for
-  models that have no image-edit support);
-- **1 · Image Generation Quality (including editing)** — generation and edit
-  nested as two subsections. Each subsection reads top-to-bottom as a story:
-  first a plain-language **results overview** with the quality leaderboard, then
-  an explanation of the **13 evaluation dimensions** (what each one measures),
-  then the **scoring detail** (per-run matrix, dimension heatmap, radar charts,
-  latency/token cost, recurring strengths/weaknesses), then **how each theme is
-  tested**, and finally a **result gallery** showing the actual output with the
-  original prompt above each run. The edit subsection embeds the shared
-  **reference image**, emphasizes the detail-retention axes, and **excludes**
-  fallback-only models (no edit support) from the comparison;
-- **2 · Content Safety** — opens with a **severity-scale legend** (L1–L5+ with
-  example prompts), then reports the headline **high-severity (L4–L5+) gating**
-  per model, a **sensitivity profile** (benign L1–L2 = false-positive/over-refusal
-  signal, L3 = moderate indicator, L4–L5+ = desired blocking), a
-  severity-escalation curve, a harm-category heatmap, and dedicated **leakage**
-  (images produced at L4/L5/L5+) and **over-refusal** (benign L1–L2 prompts that
-  were gated) tables. A single all-levels percentage is avoided on purpose, since
-  blocking benign vs. harmful prompts means opposite things;
-- **3 · Pricing** — published list pricing per model (per-token for Azure OpenAI
-  and the MAI models, per-megapixel for FLUX), normalized to an estimated cost of
-  a single 1024×1024 image so the models can be compared like-for-like;
-- **4 · Default Capacity and Observed Performance** — quantified capacity and
-  latency: the **configured
-  request-per-minute (RPM)** limit actually set on each deployment in the test
-  subscription (read from Azure — e.g. gpt-image-2 & MAI-Image-2 at 9 RPM,
-  flux-2-pro at 4 RPM, MAI-Image-2.5 at 2 RPM), the region/SKU, the **measured
-  latency** shown both in seconds and **relative to the fastest model**, and the
-  published default/scaling guidance, with links to the Foundry region matrix and
-  quota docs.
-
-Pricing and the published quota/region guidance are **external reference data**
-(sourced from Azure pricing pages and Microsoft release material, with an as-of
-date) and should be confirmed against live pricing. The **configured RPM and the
-latency figures are measured** — the RPM is read from the actual test deployments
-and is the capacity that produced the observed latency. The reference data lives
-in an editable `tools/model-reference.json` (including an `azure_measured` block
-per model) and can be swapped via `--reference path.json`.
-
-The output is fully offline: inline CSS, hand-built inline SVG charts, and
-base64-embedded thumbnails — no CDN, scripts, or network requests (the only
-`https://` links are the clickable pricing/availability **source citations**).
-The report never embeds the `config` block, so no endpoints or keys leak into it.
-
-Options:
-
-- `--no-images` — skip embedded thumbnails for a tiny, diff-friendly file.
-- `--thumb-px N` — max thumbnail edge in pixels (default 360; needs Pillow,
-  which is used only to downscale embedded thumbnails — the script otherwise
-  runs on the standard library alone).
-- `--reference PATH` — pricing/availability reference JSON (defaults to
-  `tools/model-reference.json`).
-- `--md-out PATH` — also emit a **GitHub-readable Markdown** version of the
-  report (see below).
-
-The report is a single self-contained HTML file
-(`test-reports/aggregate-report.html`). Download it from the repo and open it in
-a browser to view it — no server or network access required.
-
-### GitHub-readable Markdown export (`--md-out`)
-
-Passing `--md-out test-reports/aggregate-report.md` writes a second copy of the
-report as Markdown that renders directly on GitHub — no download required. It
-carries the same content as the HTML report (scorecard, the four categories, all
-narratives, prompts, and result galleries), with two format adaptations made
-because GitHub's Markdown sanitizer strips base64 `data:` images and inline
-`<svg>`:
-
-- every image is extracted to a real file under a sibling
-  `aggregate-report-assets/` folder and referenced by **relative path**, so the
-  galleries and the edit reference image show up inline on GitHub;
-- every SVG chart is rendered as a **GitHub-flavored Markdown table** of the
-  underlying numbers (often clearer than the chart). To stay in parity with the
-  HTML report, the Markdown shows **no** safety-probe images — only the leakage
-  and over-refusal tables.
-
-The `.md` and its `aggregate-report-assets/` folder are committed together so the
-report is viewable straight from the repo file tree. It is a **static snapshot** —
-re-run the command after the underlying data changes to refresh it.
 
 ## Rate-Limit & Transient-Error Handling
 

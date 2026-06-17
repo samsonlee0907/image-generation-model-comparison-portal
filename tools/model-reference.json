@@ -65,5 +65,18 @@
   },
   "capacity_note": "azure_measured values are the request-per-minute (RPM) limits actually configured on the test deployments (Global Standard, Sweden Central) at the time the latencies were recorded, read from Azure. They are the per-deployment defaults for this subscription and can be raised via a quota request; they are not vendor-wide maximums. These image deployments are RPM-limited and do not expose a separate TPM bucket.",
   "region_matrix_url": "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability",
-  "quota_doc_url": "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/quotas-limits"
+  "quota_doc_url": "https://learn.microsoft.com/en-us/azure/foundry/foundry-models/quotas-limits",
+  "generation_quality": "high",
+  "docs": {
+    "image_quality": {
+      "label": "Image Quality Evaluation methodology",
+      "path": "../docs/IMAGE_QUALITY_EVALUATION.md",
+      "url": "https://github.com/samsonlee0907/image-generation-model-comparison-portal/blob/main/docs/IMAGE_QUALITY_EVALUATION.md"
+    },
+    "content_safety": {
+      "label": "Content Safety Evaluation methodology",
+      "path": "../docs/CONTENT_SAFETY_EVALUATION.md",
+      "url": "https://github.com/samsonlee0907/image-generation-model-comparison-portal/blob/main/docs/CONTENT_SAFETY_EVALUATION.md"
+    }
+  }
 }

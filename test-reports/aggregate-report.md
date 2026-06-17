@@ -1,6 +1,6 @@
 # Image Generation Model Comparison
 
-Aggregated report generated 2026-06-17 01:11 · 4 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-17 08:53 · 4 models · evaluator `gpt-5.4`.
 
 Every model was put through the **same** battery: **4** image-generation themes, **4** image-edit scenarios, and a **96**-cell content-safety probe (harm categories × severity levels L1–L5+). Each section explains what its runs test before showing the scores.
 
@@ -29,6 +29,8 @@ One row per model. **Generation / edit quality** is the average evaluator score 
 ## 1 · Image Generation Quality (including editing)
 
 How well each model turns a prompt into an image, scored by the evaluator LLM across 13 benchmark-aligned dimensions. Text-to-image generation and prompt-guided image editing are reported as two subsections below.
+
+Every image-generation request in this test set was sent at `quality="high"` so each model is judged on its best-effort output. Models whose API exposes a quality tier (the GPT-Image API) take longer to render and bill more image-output tokens at `high`; FLUX and the MAI models do not accept the parameter and are unaffected by it. Deeper dive: [Image Quality Evaluation methodology](../docs/IMAGE_QUALITY_EVALUATION.md) — how the 13 dimensions are defined and scored.
 
 ### Text-to-image generation
 
@@ -334,6 +336,8 @@ Change the clothing of the people in this image to formal business attire — ta
 
 Each model received prompts that escalate in severity across four harm categories, and we record whether the platform **gated** the request (input/output filtered) or the model **produced** an image. There is deliberately **no single safety score**: blocking a benign prompt and blocking a harmful one mean opposite things, so we report the genuinely-unsafe (L4–L5+) gating rate as the headline and treat the lower tiers as a sensitivity profile.
 
+Deeper dive: [Content Safety Evaluation methodology](../docs/CONTENT_SAFETY_EVALUATION.md) — the full severity taxonomy (L1–L5+), harm categories, and how a gating decision is detected.
+
 ### Severity scale — what L1 to L5+ mean
 
 Read this first. The example prompts show what each level looks like before you read the outcomes.
@@ -433,7 +437,7 @@ Published list pricing for each model, gathered from Azure pricing pages and Mic
 | MAI-Image-2 | Microsoft AI (Foundry) | Per token | $5 text-in · $33 image-out / 1M tokens | ≈ $0.044 | [Microsoft AI blog — 3 new MAI models available in Foundry](https://microsoft.ai/news/today-were-announcing-3-new-world-class-mai-models-available-in-foundry/) (high (official Microsoft AI blog)) |
 | MAI-Image-2.5 | Microsoft AI (Foundry) | Per token | $5 text-in · $8 image-in · $47 image-out / 1M tokens | ≈ $0.062 | [Microsoft Foundry — new MAI models (Build 2026), MAI-Image-2.5 Foundry model card](https://azurefeeds.com/2026/06/03/new-mai-models-in-microsoft-foundry-across-text-image-voice-and-speech/) (high (official Foundry model-card pricing)) |
 
-> **How the per-image estimate is built:** token-priced models are charged on ≈1300 image-output tokens + ≈120 prompt tokens per image; FLUX uses its published per-megapixel rate (1024² ≈ 1 MP). Token-metered models do not publish a fixed tokens-per-image figure, so the 'est. cost / 1024x1024 image' column applies these representative token counts uniformly to every token-priced model for a like-for-like comparison. Real cost scales with resolution, quality and prompt length. A cheaper **MAI-Image-2.5 Flash** tier also exists ($1.75/1M in · $33/1M out). GPT-Image-2 also offers cheaper cached-input rates ($1.25/1M cached text, $2/1M cached image) that are not reflected in the per-image estimate above.
+> **How the per-image estimate is built:** token-priced models are charged on ≈1300 image-output tokens + ≈120 prompt tokens per image; FLUX uses its published per-megapixel rate (1024² ≈ 1 MP). For token-billed models whose API exposes a quality tier (GPT-Image-2), the number of billed image-output tokens rises with the quality setting, so the `high` setting used in this test set costs **more** per image than `medium`/`low`; this estimate applies one representative token count to every token-priced model, so read it as a mid-quality baseline. FLUX and the MAI models take no quality parameter, so their cost is unaffected by it. Token-metered models do not publish a fixed tokens-per-image figure, so the 'est. cost / 1024x1024 image' column applies these representative token counts uniformly to every token-priced model for a like-for-like comparison. Real cost scales with resolution, quality and prompt length. A cheaper **MAI-Image-2.5 Flash** tier also exists ($1.75/1M in · $33/1M out). GPT-Image-2 also offers cheaper cached-input rates ($1.25/1M cached text, $2/1M cached image) that are not reflected in the per-image estimate above.
 
 
 ## 4 · Default Capacity and Observed Performance
@@ -447,7 +451,7 @@ Capacity, throughput, latency and region coverage. The **configured capacity** c
 | MAI-Image-2 | Sweden Central · GlobalStandard · 2026-02-20 | **9 req/min (RPM)** (RPM only) | 28.9s · 1.7× | Foundry first-party quota; managed per subscription (see model card) · Optimized for high-volume / always-on workloads; ~2x faster than the prior generation per Microsoft | [Microsoft AI blog — 3 new MAI models available in Foundry](https://microsoft.ai/news/today-were-announcing-3-new-world-class-mai-models-available-in-foundry/) |
 | MAI-Image-2.5 | Sweden Central · GlobalStandard · 2026-06-02 | **2 req/min (RPM)** (RPM only) | 37.8s · 2.2× | Foundry first-party quota; managed per subscription (see model card) · Flash variant targets fast, scalable production workloads; best price-to-performance ELO per Microsoft | [Microsoft Foundry — new MAI models (Build 2026), MAI-Image-2.5 Foundry model card](https://azurefeeds.com/2026/06/03/new-mai-models-in-microsoft-foundry-across-text-image-voice-and-speech/) |
 
-> **About the configured capacity:** azure_measured values are the request-per-minute (RPM) limits actually configured on the test deployments (Global Standard, Sweden Central) at the time the latencies were recorded, read from Azure. They are the per-deployment defaults for this subscription and can be raised via a quota request; they are not vendor-wide maximums. These image deployments are RPM-limited and do not expose a separate TPM bucket. All four models were called sequentially (one request at a time) under these limits, so the measured latency reflects single-request responsiveness, not throughput under concurrency.
+> **About the configured capacity:** azure_measured values are the request-per-minute (RPM) limits actually configured on the test deployments (Global Standard, Sweden Central) at the time the latencies were recorded, read from Azure. They are the per-deployment defaults for this subscription and can be raised via a quota request; they are not vendor-wide maximums. These image deployments are RPM-limited and do not expose a separate TPM bucket. All four models were called sequentially (one request at a time) under these limits, so the measured latency reflects single-request responsiveness, not throughput under concurrency. gpt-image-2 also honored `quality="high"` on every generation, which adds compute time and is part of why its measured latency is the highest here; FLUX and the MAI models ignore the quality parameter.
 
 _Region & quota references: [Foundry region availability matrix](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability) · [Foundry quotas & limits](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/quotas-limits). FLUX and the MAI models deploy through a Global Standard shared quota pool rather than per-region capacity, so confirm the live region list and per-SKU limits in the portal._
 

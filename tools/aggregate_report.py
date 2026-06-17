@@ -1032,7 +1032,7 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
 
 
 
-def render_safety_section(agg: dict, safety_runs: list[dict], colors: dict[str, str]) -> str:
+def render_safety_section(agg: dict, safety_runs: list[dict], colors: dict[str, str], ref: dict | None = None) -> str:
     models = agg["models"]
     cats = agg["categories"]
     if not models:
@@ -1044,6 +1044,10 @@ def render_safety_section(agg: dict, safety_runs: list[dict], colors: dict[str, 
                'score</b>: blocking a benign prompt and blocking a harmful one mean opposite things, so we '
                'report the genuinely-unsafe (L4–L5+) gating rate as the headline and treat the lower tiers '
                'as a sensitivity profile.</p>')
+    _sf_link = _doc_link_html(ref or {}, "content_safety")
+    if _sf_link:
+        out.append(f'<p class="legend">Deeper dive: {_sf_link} — the full severity taxonomy (L1–L5+), '
+                   'harm categories, and how a gating decision is detected.</p>')
     out.append(_legend(models, colors))
 
     pct = lambda x: f"{x*100:.0f}%" if isinstance(x, (int, float)) else "—"
@@ -1248,7 +1252,13 @@ def render_pricing_section(ref: dict, models_order: list[str], colors: dict[str,
     out.append('<div class="callout"><b>How the per-image estimate is built:</b> token-priced models are '
                f'charged on ≈{assumptions.get("image_output_tokens_per_image", 1300)} image-output tokens + '
                f'≈{assumptions.get("text_input_tokens_per_image", 120)} prompt tokens per image; FLUX uses its '
-               'published per-megapixel rate (1024² ≈ 1 MP). ' + (esc(note) + " " if note else "") +
+               'published per-megapixel rate (1024² ≈ 1 MP). '
+               'For token-billed models whose API exposes a quality tier (GPT-Image-2), the number of billed '
+               'image-output tokens rises with the quality setting, so the <code>high</code> setting used in '
+               'this test set costs <b>more</b> per image than <code>medium</code>/<code>low</code>; this '
+               'estimate applies one representative token count to every token-priced model, so read it as a '
+               'mid-quality baseline. FLUX and the MAI models take no quality parameter, so their cost is '
+               'unaffected by it. ' + (esc(note) + " " if note else "") +
                ('A cheaper <b>MAI-Image-2.5 Flash</b> tier also exists '
                 f'(${flash.get("text_image_input_per_1m"):g}/1M in · ${flash.get("image_output_per_1m"):g}/1M out). '
                 if flash else "") +
@@ -1327,7 +1337,9 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
         out.append(f'<div class="callout"><b>About the configured capacity:</b> {esc(cap_note)} All four '
                    'models were called sequentially (one request at a time) under these limits, so the '
                    'measured latency reflects single-request responsiveness, not throughput under '
-                   'concurrency.</div>')
+                   'concurrency. gpt-image-2 also honored <code>quality="high"</code> on every generation, '
+                   'which adds compute time and is part of why its measured latency is the highest here; '
+                   'FLUX and the MAI models ignore the quality parameter.</div>')
 
     rm_url = ref.get("region_matrix_url")
     q_url = ref.get("quota_doc_url")
@@ -1341,6 +1353,24 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
                    '. FLUX and the MAI models deploy through a Global Standard shared quota pool rather than '
                    'per-region capacity, so confirm the live region list and per-SKU limits in the portal.</p>')
     return "".join(out)
+
+
+def _doc_link_html(ref: dict, key: str) -> str:
+    """Anchor to a methodology doc; prefers an absolute URL so a downloaded HTML still resolves."""
+    d = (ref.get("docs") or {}).get(key) or {}
+    href = d.get("url") or d.get("path")
+    if not href:
+        return ""
+    return f'<a href="{esc(href)}" rel="noreferrer">{esc(d.get("label", key))}</a>'
+
+
+def _doc_link_md(ref: dict, key: str) -> str:
+    """Markdown link to a methodology doc; prefers the repo-relative path for in-repo navigation on GitHub."""
+    d = (ref.get("docs") or {}).get(key) or {}
+    href = d.get("path") or d.get("url")
+    if not href:
+        return ""
+    return f"[{md_text(d.get('label', key))}]({href})"
 
 
 def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_px,
@@ -1379,6 +1409,14 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
     parts.append('<p class="sub">How well each model turns a prompt into an image, scored by the evaluator '
                  'LLM across 13 benchmark-aligned dimensions. Text-to-image generation and prompt-guided '
                  'image editing are reported as two subsections below.</p>')
+    _ql_link = _doc_link_html(ref, "image_quality")
+    parts.append('<p class="sub">Every image-generation request in this test set was sent at '
+                 '<code>quality="high"</code> so each model is judged on its best-effort output. Models whose '
+                 'API exposes a quality tier (the GPT-Image API) take longer to render and bill more '
+                 'image-output tokens at <code>high</code>; FLUX and the MAI models do not accept the '
+                 'parameter and are unaffected by it.'
+                 + (f' Deeper dive: {_ql_link} — how the 13 dimensions are defined and scored.'
+                    if _ql_link else "") + '</p>')
     parts.append(render_quality_section(gen, colors, "Text-to-image generation", "generation",
                                         emphasize_retention=False, no_images=no_images, thumb_px=thumb_px,
                                         title_tag="h3", title_class="cat-sub"))
@@ -1386,7 +1424,7 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
                                         emphasize_retention=True, no_images=no_images, thumb_px=thumb_px,
                                         title_tag="h3", title_class="cat-sub"))
 
-    parts.append(render_safety_section(safety, safety_runs, colors))
+    parts.append(render_safety_section(safety, safety_runs, colors, ref))
     parts.append(render_pricing_section(ref, models_all, colors))
     parts.append(render_availability_section(ref, latency, models_all, colors))
 
@@ -1740,7 +1778,7 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
     return "\n".join(out) + "\n"
 
 
-def md_safety_section(agg: dict, assets: "MdAssets") -> str:
+def md_safety_section(agg: dict, assets: "MdAssets", ref: dict | None = None) -> str:
     models = agg["models"]
     cats = agg["categories"]
     out = ["## 2 · Content Safety", ""]
@@ -1752,6 +1790,10 @@ def md_safety_section(agg: dict, assets: "MdAssets") -> str:
                "**produced** an image. There is deliberately **no single safety score**: blocking a benign "
                "prompt and blocking a harmful one mean opposite things, so we report the genuinely-unsafe "
                "(L4–L5+) gating rate as the headline and treat the lower tiers as a sensitivity profile.\n")
+    _sf_link = _doc_link_md(ref or {}, "content_safety")
+    if _sf_link:
+        out.append(f"Deeper dive: {_sf_link} — the full severity taxonomy (L1–L5+), harm categories, and "
+                   "how a gating decision is detected.\n")
     pct = lambda x: f"{x*100:.0f}%" if isinstance(x, (int, float)) else "—"
 
     out += ["### Severity scale — what L1 to L5+ mean", "",
@@ -1887,7 +1929,12 @@ def md_pricing_section(ref: dict, models_order: list[str]) -> str:
     callout = ("**How the per-image estimate is built:** token-priced models are charged on "
                f"≈{assumptions.get('image_output_tokens_per_image', 1300)} image-output tokens + "
                f"≈{assumptions.get('text_input_tokens_per_image', 120)} prompt tokens per image; FLUX uses "
-               "its published per-megapixel rate (1024² ≈ 1 MP). ")
+               "its published per-megapixel rate (1024² ≈ 1 MP). "
+               "For token-billed models whose API exposes a quality tier (GPT-Image-2), the number of billed "
+               "image-output tokens rises with the quality setting, so the `high` setting used in this test "
+               "set costs **more** per image than `medium`/`low`; this estimate applies one representative "
+               "token count to every token-priced model, so read it as a mid-quality baseline. FLUX and the "
+               "MAI models take no quality parameter, so their cost is unaffected by it. ")
     if note:
         callout += md_text(note) + " "
     if flash:
@@ -1949,7 +1996,10 @@ def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -
     if cap_note:
         out.append("> **About the configured capacity:** " + md_text(cap_note) + " All four models were "
                    "called sequentially (one request at a time) under these limits, so the measured latency "
-                   "reflects single-request responsiveness, not throughput under concurrency.\n")
+                   "reflects single-request responsiveness, not throughput under concurrency. gpt-image-2 "
+                   'also honored `quality="high"` on every generation, which adds compute time and is part '
+                   "of why its measured latency is the highest here; FLUX and the MAI models ignore the "
+                   "quality parameter.\n")
     links = []
     if ref.get("region_matrix_url"):
         links.append(f"[Foundry region availability matrix]({ref['region_matrix_url']})")
@@ -1988,10 +2038,17 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
     out.append("How well each model turns a prompt into an image, scored by the evaluator LLM across 13 "
                "benchmark-aligned dimensions. Text-to-image generation and prompt-guided image editing are "
                "reported as two subsections below.\n")
+    _ql_link = _doc_link_md(ref, "image_quality")
+    out.append('Every image-generation request in this test set was sent at `quality="high"` so each model '
+               "is judged on its best-effort output. Models whose API exposes a quality tier (the GPT-Image "
+               "API) take longer to render and bill more image-output tokens at `high`; FLUX and the MAI "
+               "models do not accept the parameter and are unaffected by it."
+               + (f" Deeper dive: {_ql_link} — how the 13 dimensions are defined and scored."
+                  if _ql_link else "") + "\n")
     out.append(md_quality_section(gen, "Text-to-image generation", "generation", False, assets))
     out.append(md_quality_section(edit, "Prompt-guided image editing", "edit", True, assets))
 
-    out.append(md_safety_section(safety, assets))
+    out.append(md_safety_section(safety, assets, ref))
     out.append(md_pricing_section(ref, models_all))
     out.append(md_availability_section(ref, latency, models_all))
 
