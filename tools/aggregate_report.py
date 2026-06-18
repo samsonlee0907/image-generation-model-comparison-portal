@@ -266,16 +266,17 @@ def scenario_target_text(run: dict[str, Any]) -> str:
 
 
 def availability_region_sku(entry: dict[str, Any], measured: dict[str, Any]) -> str:
-    """Region/SKU label, preferring official Azure documentation coverage."""
-    official_regions = [str(x).strip() for x in (entry.get("official_regions") or []) if str(x).strip()]
-    official_sku = str(entry.get("official_sku") or measured.get("sku") or "").strip()
-    if official_regions:
-        label = ", ".join(official_regions)
-        if official_sku:
-            label = f"{label} · {official_sku}"
-    elif measured:
+    """Configured deployment label from the measured subscription setup."""
+    if measured:
         label = f"{measured.get('region', '—')} · {measured.get('sku', '—')}"
     else:
+        official_regions = [str(x).strip() for x in (entry.get("official_regions") or []) if str(x).strip()]
+        official_sku = str(entry.get("official_sku") or "").strip()
+        if official_regions:
+            label = ", ".join(official_regions)
+            if official_sku:
+                label = f"{label} · {official_sku}"
+            return label
         regions = entry.get("regions") or []
         label = ", ".join(str(r) for r in regions) if regions else "—"
     ver = measured.get("deployed_version")
@@ -1610,13 +1611,14 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
     ref_models = ref.get("models") or {}
     out = ['<h2 id="availability">4 · Default Capacity and Observed Performance</h2>']
     out.append(
-        '<p class="sub">Capacity, throughput, latency and region coverage. The <b>Region &amp; SKU</b> column '
-        'uses official Azure documentation for Global Standard availability, while the <b>configured capacity</b> '
-        'column shows the actual request-per-minute (RPM) limit configured on each deployment in this test '
-        'subscription (the same limits that produced the measured latencies). Latency is shown both in seconds and '
+        '<p class="sub">Capacity, throughput and latency observed from the configured deployments. The '
+        '<b>Configured region and deployment type</b> column shows the actual region, deployment SKU/type, and '
+        'model version configured in this subscription, while the <b>configured capacity</b> column shows the '
+        'actual request-per-minute (RPM) limit configured on each deployment (the same limits that produced '
+        'the measured latencies). Latency is shown both in seconds and '
         '<b>relative to the fastest model</b> so the comparison is objective. Configured RPM is a per-deployment '
         'default that can be raised through a quota request; it is not a vendor-wide maximum.</p>')
-    out.append('<table><tr><th class="label">Model</th><th class="label">Region &amp; SKU</th>'
+    out.append('<table><tr><th class="label">Model</th><th class="label">Configured region and deployment type</th>'
                '<th class="label">Configured capacity</th>'
                '<th class="label">Measured latency<br><span class="muted small">(avg · ×fastest)</span></th>'
                '<th class="label">Published default / scaling</th>'
@@ -1636,7 +1638,7 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
             lat_txt = "—"
         win = " win" if m == fastest else ""
 
-        # Region & SKU: official documented coverage first, then measured fallback.
+        # Region/SKU shown here is the configured subscription deployment.
         reg_sku = esc(availability_region_sku(e, am))
 
         # Configured capacity — quantified RPM if known.
@@ -2487,12 +2489,13 @@ def md_pricing_section(ref: dict, models_order: list[str]) -> str:
 def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -> str:
     ref_models = ref.get("models") or {}
     out = ["## 4 · Default Capacity and Observed Performance", "",
-           "Capacity, throughput, latency and region coverage. The **Region & SKU** column uses official Azure "
-           "documentation for Global Standard availability, while the **configured capacity** column shows the "
-           "actual request-per-minute (RPM) limit configured on each deployment in this test subscription (the "
-           "same limits that produced the measured latencies). Latency is shown both in seconds and **relative "
-           "to the fastest model**. Configured RPM is a per-deployment default that can be raised through a "
-           "quota request; it is not a vendor-wide maximum.", ""]
+           "Capacity, throughput and latency observed from the configured deployments. The **Configured region "
+           "and deployment type** column shows the actual region, deployment SKU/type, and model version "
+           "configured in this subscription, while the **configured capacity** column shows the actual "
+           "request-per-minute (RPM) limit configured on each deployment (the same limits that produced the "
+           "measured latencies). Latency is shown both in seconds and **relative to the fastest model**. "
+           "Configured RPM is a per-deployment default that can be raised through a quota request; it is not a "
+           "vendor-wide maximum.", ""]
     nums = {m: v for m, v in latency.items() if isinstance(v, (int, float))}
     fastest = min(nums, key=nums.get) if nums else None
     fastest_lat = nums[fastest] if fastest else None
@@ -2522,7 +2525,7 @@ def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -
         src_md = f"[{md_cell(src)}]({src_url})" if src_url else md_cell(src)
         rows.append([md_cell(m), md_cell(reg_sku), md_cell(cap), md_cell(lat_txt),
                      md_cell(quota_txt), src_md])
-    out.append(md_table(["Model", "Region & SKU", "Configured capacity",
+    out.append(md_table(["Model", "Configured region and deployment type", "Configured capacity",
                          "Measured latency (avg · ×fastest)", "Published default / scaling", "Source"], rows))
 
     cap_note = ref.get("capacity_note")
