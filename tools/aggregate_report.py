@@ -1868,7 +1868,9 @@ class MdAssets:
         key = str(path.resolve())
         if key in self._cache:
             return self._cache[key]
-        base = _slugify(hint)
+        # Prefix thumbnail filenames so GitHub/camo does not keep serving cached
+        # images when thumbnail-generation rules change.
+        base = "mdthumb-v3-" + _slugify(hint)
         suffix = ".jpg" if _HAVE_PIL else (path.suffix or ".png")
         name = base + suffix
         i = 2
@@ -1903,7 +1905,8 @@ def _md_image_grid(items: list[tuple[str, str]], width: int = 180) -> str:
     if not items:
         return ""
     tds = "".join(
-        f'<td align="center" valign="top"><img src="{rel}" width="{width}"><br>'
+        f'<td align="center" valign="top" width="{width}">'
+        f'<img src="{rel}" width="{width}" height="{width}"><br>'
         f"<sub>{md_text(cap)}</sub></td>"
         for rel, cap in items
     )
