@@ -1,6 +1,8 @@
 # Image Generation Model Comparison
 
-Aggregated report generated 2026-06-18 01:35 · 6 models · evaluator `gpt-5.4`.
+> **Disclaimer:** This report reflects a single run per test category (generation theme, edit scenario, and safety prompt cell). Results are directional and may not yet represent normalized behavior.
+
+Aggregated report generated 2026-06-18 09:16 · 6 models · evaluator `gpt-5.4`.
 
 Every model was put through the **same** set of tests: **12** image-generation themes, **12** image-edit scenarios, and a **144**-cell content-safety probe (harm categories × severity levels L1–L5+). Each section explains what its runs test before showing the scores.
 
@@ -16,16 +18,16 @@ Every model was put through the **same** set of tests: **12** image-generation t
 
 ## Executive Scorecard
 
-One row per model. **Generation / edit quality** is the average evaluator score (0–10); edit quality is **N/A** for models without image-edit support. **Severe-prompt gating** is the share of genuinely unsafe (L4–L5+) prompts blocked. **Est. price / image** normalizes published pricing to one 1024×1024 image (see §3), and **measured latency** is the average wall-clock time observed in this test set (see §4). 🏆 marks the leader on each axis.
+One row per model. **Generation / edit quality** is the average evaluator score (0–10); edit quality is **N/A** for models without image-edit support. **Severe-prompt gating** is the share of genuinely unsafe (L4–L5+) prompts blocked. **Measured latency** is the average wall-clock time observed in this test set (see §4). 🏆 marks the leader on each axis.
 
-| Model | Generation quality | Edit quality | Severe-prompt gating (L4–L5+) | Est. price / image | Measured latency |
-| --- | --- | --- | --- | --- | --- |
-| gpt-image-2 | **9.2** 🏆 | **9.0** 🏆 | 100% | ≈ $0.040 | 77s |
-| gpt-image-1.5 | 8.4 | 7.9 | 100% | ≈ $0.042 | 30s |
-| flux-2-pro | 6.7 | 8.2 | 67% | **≈ $0.030** 🏆 | **19s** 🏆 |
-| MAI-Image-2 | 8.0 | N/A | 92% | ≈ $0.044 | 30s |
-| MAI-Image-2.5 | 8.3 | 8.7 | 83% | ≈ $0.062 | 39s |
-| MAI-Image-2.5-Flash | 8.0 | 8.8 | 92% | ≈ $0.043 | 31s |
+| Model | Generation quality | Edit quality | Severe-prompt gating (L4–L5+) | Measured latency |
+| --- | --- | --- | --- | --- |
+| gpt-image-2 | **9.2** 🏆 | **9.0** 🏆 | 100% | 77s |
+| gpt-image-1.5 | 8.4 | 7.9 | 100% | 30s |
+| flux-2-pro | 6.7 | 8.2 | 67% | **19s** 🏆 |
+| MAI-Image-2 | 8.0 | N/A | 92% | 30s |
+| MAI-Image-2.5 | 8.3 | 8.7 | 83% | 39s |
+| MAI-Image-2.5-Flash | 8.0 | 8.8 | 92% | 31s |
 
 
 ## 1 · Image Generation Quality (including editing)
@@ -817,7 +819,7 @@ _Produced is the correct outcome for benign prompts, so this is a raw tally, not
 
 ## 3 · Pricing
 
-Published list pricing for each model, gathered from Azure pricing pages and Microsoft release material **as of 2026-06-18**. Vendors meter these models differently — Azure OpenAI and the MAI models charge **per token**, while FLUX 2 Pro charges **per megapixel** — so the final column normalizes everything to the estimated cost of a single 1024×1024 image. Always confirm against live pricing before budgeting.
+Published list pricing for each model, gathered from Azure pricing pages and Microsoft release material **as of 2026-06-18**. Vendors meter these models differently — Azure OpenAI and the MAI models charge **per token**, while FLUX 2 Pro charges **per megapixel** — so the final column uses a shared mid-quality baseline for like-for-like comparison: approximately **1300** image-output tokens + **120** prompt tokens per 1024×1024 image for token-priced models. MAI-Image models expose no quality parameter, so this baseline is an estimate anchor (not a final invoice). Always confirm against live pricing before budgeting.
 
 | Model | Vendor | Pricing model | Published rates | Est. $ / 1024² image | Source |
 | --- | --- | --- | --- | --- | --- |

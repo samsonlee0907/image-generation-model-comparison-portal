@@ -896,8 +896,6 @@ def _legend(models: list[str], colors: dict[str, str]) -> str:
 def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str],
                      ref: dict, latency: dict[str, float | None]) -> str:
     models = sorted(set(gen["order"]) | set(edit["order"]) | set(safety["models"]), key=model_sort_key)
-    ref_models = ref.get("models") or {}
-    assumptions = ref.get("assumptions") or {}
 
     def best(metric_getter, higher=True):
         vals = {m: metric_getter(m) for m in models}
@@ -905,10 +903,9 @@ def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str]
         if not nums:
             return None
         return (max if higher else min)(nums, key=nums.get)
-
     best_gen = best(lambda m: gen["models"].get(m, {}).get("overall_avg"))
     best_edit = best(lambda m: edit["models"].get(m, {}).get("overall_avg"))
-    cheapest = best(lambda m: price_per_image(ref_models.get(m, {}), assumptions), higher=False)
+    best_edit = best(lambda m: edit["models"].get(m, {}).get("overall_avg"))
     fastest = best(lambda m: latency.get(m), higher=False)
 
     cards = []
@@ -919,9 +916,6 @@ def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str]
         e_txt = ("N/A" if em.get("excluded") else fmt(e)) + ("" if em.get("excluded") or m != best_edit else " 🏆")
         hsr = safety["high_sev_rate"].get(m)
         hsr_txt = f"{hsr*100:.0f}%" if isinstance(hsr, (int, float)) else "—"
-        ppi = price_per_image(ref_models.get(m, {}), assumptions)
-        ppi_txt = (f"≈ ${ppi:.3f}" if isinstance(ppi, (int, float)) else "—") + (
-            " 🏆" if m == cheapest else "")
         lat = latency.get(m)
         lat_txt = (f"{lat:.0f}s" if isinstance(lat, (int, float)) else "—") + (
             " 🏆" if m == fastest else "")
@@ -932,7 +926,6 @@ def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str]
             f'<div class="kv"><span>Edit quality</span><b>{e_txt}</b></div>'
             f'<div class="kv"><span>Severe-prompt gating <span class="muted small">(L4–L5+)</span></span>'
             f'<b>{hsr_txt}</b></div>'
-            f'<div class="kv"><span>Est. price / image</span><b>{ppi_txt}</b></div>'
             f'<div class="kv"><span>Measured latency</span><b>{lat_txt}</b></div></div>'
         )
     return (
@@ -940,9 +933,8 @@ def render_scorecard(gen: dict, edit: dict, safety: dict, colors: dict[str, str]
         '<p class="sub">One row per comparison axis. <b>Generation / edit quality</b> is the average '
         'evaluator score (0–10); edit quality is <b>N/A</b> for models without image-edit support. '
         '<b>Severe-prompt gating</b> is the share of genuinely unsafe (L4–L5+) prompts blocked. '
-        '<b>Est. price / image</b> normalizes published pricing to one 1024×1024 image (see §3 for '
-        'assumptions), and <b>measured latency</b> is the average wall-clock time observed in this test '
-        'set (see §4). 🏆 marks the leader on each axis.</p>'
+        '<b>Measured latency</b> is the average wall-clock time observed in this test set (see §4). '
+        '🏆 marks the leader on each axis.</p>'
         f'<div class="cards">{"".join(cards)}</div>'
     )
 
@@ -1550,9 +1542,12 @@ def render_pricing_section(ref: dict, models_order: list[str], colors: dict[str,
         '<p class="sub">Published list pricing for each model, gathered from Azure pricing pages and '
         f'Microsoft release material <b>as of {esc(as_of)}</b>. Vendors meter these models differently — '
         'Azure OpenAI and the MAI models charge <b>per token</b>, while FLUX 2 Pro charges <b>per '
-        'megapixel</b> — so the final column normalizes everything to the estimated cost of a single '
-        '1024×1024 image for a like-for-like comparison. Always confirm against live pricing before '
-        'budgeting; promotional or regional rates may differ.</p>')
+        f'megapixel</b>. For a like-for-like comparison, the final column applies a shared mid-quality '
+        f'baseline of approximately <b>{assumptions.get("image_output_tokens_per_image", 1300)}</b> image-output '
+        f'tokens plus <b>{assumptions.get("text_input_tokens_per_image", 120)}</b> prompt tokens per 1024×1024 image '
+        'for token-priced models. MAI-Image models expose no quality parameter, so this baseline is an estimate '
+        'anchor (not a final invoice). Always confirm against live pricing before budgeting; promotional or regional '
+        'rates may differ.</p>')
     out.append('<table><tr><th class="label">Model</th><th class="label">Vendor</th>'
                '<th>Pricing model</th><th class="label">Published rates</th>'
                '<th>Est. $ / 1024² image</th><th class="label">Source</th></tr>')
@@ -1717,6 +1712,9 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
         "<title>Image Model Comparison — Aggregated Report</title>",
         f"<style>{CSS}</style></head><body><div class='wrap'>",
         "<h1>Image Generation Model Comparison</h1>",
+        '<div class="callout warn"><b>Disclaimer:</b> This report reflects a single run per test category '
+        '(generation theme, edit scenario, and safety prompt cell). Results are directional and may not yet '
+        'represent normalized behavior.</div>',
         f'<p class="sub">Aggregated report generated {esc(dataset_meta["generated_at"])} · '
         f'{len(models_all)} models · evaluator <code>{esc(dataset_meta["evaluator"])}</code>.</p>',
         f'<p class="sub">Every model was put through the <b>same</b> set of tests: '
@@ -1934,8 +1932,6 @@ def _md_quality_narrative(agg: dict, ranked: list[str], noun_plural: str,
 
 def md_scorecard(gen: dict, edit: dict, safety: dict, ref: dict, latency: dict) -> str:
     models = sorted(set(gen["order"]) | set(edit["order"]) | set(safety["models"]), key=model_sort_key)
-    ref_models = ref.get("models") or {}
-    assumptions = ref.get("assumptions") or {}
 
     def best(getter, higher=True):
         nums = {m: getter(m) for m in models}
@@ -1943,10 +1939,9 @@ def md_scorecard(gen: dict, edit: dict, safety: dict, ref: dict, latency: dict) 
         if not nums:
             return None
         return (max if higher else min)(nums, key=nums.get)
-
     best_gen = best(lambda m: gen["models"].get(m, {}).get("overall_avg"))
     best_edit = best(lambda m: edit["models"].get(m, {}).get("overall_avg"))
-    cheapest = best(lambda m: price_per_image(ref_models.get(m, {}), assumptions), higher=False)
+    best_edit = best(lambda m: edit["models"].get(m, {}).get("overall_avg"))
     fastest = best(lambda m: latency.get(m), higher=False)
 
     rows = []
@@ -1960,25 +1955,20 @@ def md_scorecard(gen: dict, edit: dict, safety: dict, ref: dict, latency: dict) 
             e_txt = f"**{e_txt}** 🏆"
         hsr = safety["high_sev_rate"].get(m)
         hsr_txt = f"{hsr*100:.0f}%" if isinstance(hsr, (int, float)) else "—"
-        ppi = price_per_image(ref_models.get(m, {}), assumptions)
-        ppi_txt = f"≈ ${ppi:.3f}" if isinstance(ppi, (int, float)) else "—"
-        if m == cheapest:
-            ppi_txt = f"**{ppi_txt}** 🏆"
         lat = latency.get(m)
         lat_txt = f"{lat:.0f}s" if isinstance(lat, (int, float)) else "—"
         if m == fastest:
             lat_txt = f"**{lat_txt}** 🏆"
-        rows.append([md_cell(m), g_txt, e_txt, hsr_txt, ppi_txt, lat_txt])
+        rows.append([md_cell(m), g_txt, e_txt, hsr_txt, lat_txt])
 
     out = ["## Executive Scorecard", "",
            "One row per model. **Generation / edit quality** is the average evaluator score (0–10); edit "
            "quality is **N/A** for models without image-edit support. **Severe-prompt gating** is the share "
-           "of genuinely unsafe (L4–L5+) prompts blocked. **Est. price / image** normalizes published "
-           "pricing to one 1024×1024 image (see §3), and **measured latency** is the average wall-clock "
+           "of genuinely unsafe (L4–L5+) prompts blocked. **Measured latency** is the average wall-clock "
            "time observed in this test set (see §4). 🏆 marks the leader on each axis.", ""]
     out.append(md_table(
         ["Model", "Generation quality", "Edit quality", "Severe-prompt gating (L4–L5+)",
-         "Est. price / image", "Measured latency"], rows))
+         "Measured latency"], rows))
     return "\n".join(out) + "\n"
 
 
@@ -2427,8 +2417,11 @@ def md_pricing_section(ref: dict, models_order: list[str]) -> str:
            "Published list pricing for each model, gathered from Azure pricing pages and Microsoft release "
            f"material **as of {md_text(as_of)}**. Vendors meter these models differently — Azure OpenAI and "
            "the MAI models charge **per token**, while FLUX 2 Pro charges **per megapixel** — so the final "
-           "column normalizes everything to the estimated cost of a single 1024×1024 image. Always confirm "
-           "against live pricing before budgeting.", ""]
+           "column uses a shared mid-quality baseline for like-for-like comparison: approximately "
+           f"**{assumptions.get('image_output_tokens_per_image', 1300)}** image-output tokens + "
+           f"**{assumptions.get('text_input_tokens_per_image', 120)}** prompt tokens per 1024×1024 image for "
+           "token-priced models. MAI-Image models expose no quality parameter, so this baseline is an estimate "
+           "anchor (not a final invoice). Always confirm against live pricing before budgeting.", ""]
     priced = {m: price_per_image(ref_models.get(m, {}), assumptions) for m in models_order}
     nums = {m: v for m, v in priced.items() if isinstance(v, (int, float))}
     cheapest = min(nums, key=nums.get) if nums else None
@@ -2544,6 +2537,9 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
     models_all = sorted(set(gen["order"]) | set(edit["order"]) | set(safety["models"]), key=model_sort_key)
 
     out = ["# Image Generation Model Comparison", ""]
+    out.append("> **Disclaimer:** This report reflects a single run per test category "
+               "(generation theme, edit scenario, and safety prompt cell). Results are directional and "
+               "may not yet represent normalized behavior.\n")
     out.append(f"Aggregated report generated {md_text(dataset_meta['generated_at'])} · "
                f"{len(models_all)} models · evaluator `{md_text(dataset_meta['evaluator'])}`.\n")
     out.append(f"Every model was put through the **same** set of tests: **{dataset_meta['n_gen_runs']}** "
