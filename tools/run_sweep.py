@@ -8,8 +8,10 @@ the results straight into the ``portal-exports/`` tree that
 
 For every requested quality tier it runs the four image-generation themes and
 the four image-edit scenarios; the content-safety set of tests is run once (its
-prompts do not depend on the image quality tier). Each run is exported into the
-matching ``portal-exports/<generation|edit|safety>/`` sub-folder.
+prompts do not depend on the image quality tier). FLUX safety probes explicitly
+send Black Forest Labs' documented default ``safety_tolerance=2`` so Azure
+omitted-parameter behavior does not affect the safety comparison. Each run is
+exported into the matching ``portal-exports/<generation|edit|safety>/`` sub-folder.
 
 Models whose routing family exposes no quality control (e.g. MAI-Image) send a
 byte-identical request at every tier, so the sweep generates them only **once** —
@@ -316,7 +318,7 @@ def _print_plan(
             edit_cells += len(EDIT_PRESETS) * len(members)
             print(f"  [{quality}] edit      : {', '.join(EDIT_PRESETS)} x [{names(members)}]")
     if not skip_safety:
-        print("  safety      : full set of tests (run once)")
+        print("  safety      : full set of tests (run once; FLUX sends BFL default safety_tolerance=2)")
     print(f"  Retries     : up to {retry_attempts} extra pass(es) for any model missing image output")
     print(f"  Image cells : {gen_cells} generation, {edit_cells} edit "
           f"(each model that lacks a quality knob is generated once, not per tier)")

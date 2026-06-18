@@ -622,6 +622,7 @@ class RunManager:
                     "outcome": outcome,
                     "blocked": bool(safety.get("blocked")),
                     "blockReason": safety.get("blockReason") or None,
+                    "safetyTolerance": safety.get("safetyTolerance"),
                     "error": cell.get("error"),
                     "imagePath": image_path_rel,
                 }

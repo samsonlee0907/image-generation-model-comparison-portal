@@ -415,8 +415,10 @@ def load_safety_runs(results_dir: Path) -> list[dict[str, Any]]:
                     "outcome": cell.get("outcome", ""),
                     "blocked": bool(cell.get("blocked")),
                     "block_reason": cell.get("blockReason"),
+                    "safety_tolerance": cell.get("safetyTolerance"),
                     "error": cell.get("error"),
                     "image": (run_dir / img_rel) if img_rel else None,
+                    "exported_at": data.get("exportedAt", ""),
                 }
             )
         runs.append(
@@ -434,17 +436,18 @@ def load_safety_runs(results_dir: Path) -> list[dict[str, Any]]:
 def dedupe_safety_cells(safety_runs: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
     """Union cells across safety runs keyed by (model, prompt_id).
 
-    Prefer non-error outcomes; an existing error is replaced by a later success.
-    Runs with more cells are processed first so the most complete run wins ties.
+    Prefer the newest non-error cell for a model/prompt pair. This lets a targeted
+    rerun (for example, a FLUX-only safety run with an explicit provider setting)
+    replace that model's older cells without duplicating the rest of the report.
     """
     merged: dict[tuple[str, str], dict[str, Any]] = {}
-    for run in sorted(safety_runs, key=lambda r: -len(r["cells"])):
+    for run in sorted(safety_runs, key=lambda r: str(r.get("exported_at") or "")):
         for cell in run["cells"]:
             key = (cell["model"], cell["prompt_id"])
             existing = merged.get(key)
             if existing is None:
                 merged[key] = cell
-            elif existing["outcome"] == "error" and cell["outcome"] != "error":
+            elif cell["outcome"] != "error":
                 merged[key] = cell
     return merged
 
@@ -754,6 +757,7 @@ def aggregate_safety(cells: dict[tuple[str, str], dict[str, Any]]) -> dict[str, 
                  "high": {"produced": 0, "gated": 0}} for m in models}
     leakage, over_refusal = [], []
     level_examples: dict[str, dict[str, Any]] = {}
+    safety_tolerance_by_model: dict[str, Any] = {}
 
     for cell in cells.values():
         lvl = cell["level_label"]
@@ -762,6 +766,8 @@ def aggregate_safety(cells: dict[tuple[str, str], dict[str, Any]]) -> dict[str, 
         m = cell["model"]
         if m not in counts:
             continue
+        if cell.get("safety_tolerance") is not None:
+            safety_tolerance_by_model[m] = cell.get("safety_tolerance")
         outcome = cell["outcome"]
         cat = cell["category"]
         tier = "high" if lvl in HIGH_SEVERITY else ("mild" if lvl == "L3" else "benign")
@@ -815,6 +821,7 @@ def aggregate_safety(cells: dict[tuple[str, str], dict[str, Any]]) -> dict[str, 
         "leakage": leakage,
         "over_refusal": over_refusal,
         "level_examples": level_examples,
+        "safety_tolerance_by_model": safety_tolerance_by_model,
     }
 
 
@@ -1380,6 +1387,15 @@ def render_safety_section(agg: dict, safety_runs: list[dict], colors: dict[str, 
                'score</b>: blocking a benign prompt and blocking a harmful one mean opposite things, so we '
                'report the genuinely-unsafe (L4–L5+) gating rate as the headline and treat the lower tiers '
                'as a sensitivity profile.</p>')
+    tolerance = agg.get("safety_tolerance_by_model") or {}
+    if tolerance:
+        details = ", ".join(
+            f"{esc(model)}={esc(value)}" for model, value in sorted(tolerance.items(), key=lambda item: model_sort_key(item[0]))
+        )
+        out.append('<p class="legend"><b>FLUX safety setting:</b> FLUX content-safety cells explicitly use '
+                   '<code>safety_tolerance=2</code>, the Black Forest Labs documented default '
+                   '(0 = most strict, 5 = least strict). Merged cells with this setting: '
+                   f'{details}.</p>')
     _sf_link = _doc_link_html(ref or {}, "content_safety")
     if _sf_link:
         out.append(f'<p class="legend">Deeper dive: {_sf_link} — the full severity taxonomy (L1–L5+), '
@@ -2326,6 +2342,16 @@ def md_safety_section(agg: dict, assets: "MdAssets", ref: dict | None = None) ->
                "**produced** an image. There is deliberately **no single safety score**: blocking a benign "
                "prompt and blocking a harmful one mean opposite things, so we report the genuinely-unsafe "
                "(L4–L5+) gating rate as the headline and treat the lower tiers as a sensitivity profile.\n")
+    tolerance = agg.get("safety_tolerance_by_model") or {}
+    if tolerance:
+        details = ", ".join(
+            f"{md_text(model)}={md_text(value)}"
+            for model, value in sorted(tolerance.items(), key=lambda item: model_sort_key(item[0]))
+        )
+        out.append("**FLUX safety setting:** FLUX content-safety cells explicitly use "
+                   "`safety_tolerance=2`, the Black Forest Labs documented default "
+                   "(0 = most strict, 5 = least strict). Merged cells with this setting: "
+                   f"{details}.\n")
     _sf_link = _doc_link_md(ref or {}, "content_safety")
     if _sf_link:
         out.append(f"Deeper dive: {_sf_link} — the full severity taxonomy (L1–L5+), harm categories, and "

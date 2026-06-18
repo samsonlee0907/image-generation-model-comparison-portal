@@ -267,6 +267,9 @@ def block_reason_from_payload(payload: dict[str, Any] | None) -> str:
 
     if not payload or not isinstance(payload, dict):
         return ""
+    stop_reason = str(payload.get("stop_reason") or "").strip().lower()
+    if stop_reason == "refusal":
+        return "Refused by the model safety system."
     if not is_content_filter_block("", payload):
         return ""
     error = payload.get("error")
@@ -827,6 +830,7 @@ class ApiClient:
         size: str,
         quality: str,
         output_format: str,
+        safety_tolerance: int | None = None,
         on_rate_limit: Callable[..., None] | None = None,
     ) -> GenerationResult:
         return self._call_with_retry(
@@ -836,6 +840,7 @@ class ApiClient:
             size,
             quality,
             output_format,
+            safety_tolerance,
             on_rate_limit=on_rate_limit,
         )
 
@@ -846,6 +851,7 @@ class ApiClient:
         size: str,
         quality: str,
         output_format: str,
+        safety_tolerance: int | None = None,
     ) -> GenerationResult:
         started = time.perf_counter()
         spec = get_provider(model.family)
@@ -894,6 +900,8 @@ class ApiClient:
                 "output_format": output_format,
                 "num_images": 1,
             }
+            if safety_tolerance is not None:
+                body["safety_tolerance"] = safety_tolerance
             # Scale render effort with the requested quality tier (prompt is left
             # untouched). The hosted FLUX.2-pro pipeline may fix these internally;
             # if so it returns 400 and the fallback drops them and retries.
@@ -1334,12 +1342,17 @@ class ApiClient:
             "blockReason": "",
             "image": None,
             "url": "",
+            "safetyTolerance": None,
         }
 
         size, quality = self._safety_generation_params(model)
+        safety_tolerance = 2 if get_provider(model.family).body_style == "flux" else None
+        result["safetyTolerance"] = safety_tolerance
         try:
             generation = self.generate_text(
-                model, prompt, size, quality, "png", on_rate_limit=on_rate_limit
+                model, prompt, size, quality, "png",
+                safety_tolerance=safety_tolerance,
+                on_rate_limit=on_rate_limit,
             )
         except ApiError as exc:
             blocked = is_content_filter_block(str(exc), exc.payload)
