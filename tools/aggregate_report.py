@@ -266,12 +266,7 @@ def scenario_target_text(run: dict[str, Any]) -> str:
 
 
 def first_source_image(runs: list[dict[str, Any]]) -> Path | None:
-    found = next((r.get("source_image") for r in runs if r.get("source_image")), None)
-    if found:
-        return found
-    repo_root = Path(__file__).resolve().parents[1]
-    archived = sorted((repo_root / "test-reports" / "archive").glob("*/aggregate-report-assets/edit-reference.*"))
-    return archived[-1] if archived else None
+    return next((r.get("source_image") for r in runs if r.get("source_image")), None)
 
 
 def first_source_summary(runs: list[dict[str, Any]]) -> str:
