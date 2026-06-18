@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 try:  # optional: only used to shrink embedded thumbnails
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     _HAVE_PIL = True
 except Exception:  # pragma: no cover - environment dependent
@@ -1880,12 +1880,13 @@ class MdAssets:
             if _HAVE_PIL:
                 with Image.open(path) as im:
                     im = im.convert("RGB")
-                    im.thumbnail((self.thumb_px, self.thumb_px))
-                    canvas = Image.new("RGB", (self.thumb_px, self.thumb_px), "white")
-                    x = (self.thumb_px - im.width) // 2
-                    y = (self.thumb_px - im.height) // 2
-                    canvas.paste(im, (x, y))
-                    canvas.save(dest, format="JPEG", quality=82)
+                    thumb = ImageOps.fit(
+                        im,
+                        (self.thumb_px, self.thumb_px),
+                        method=Image.Resampling.LANCZOS,
+                        centering=(0.5, 0.5),
+                    )
+                    thumb.save(dest, format="JPEG", quality=82)
             else:
                 shutil.copyfile(path, dest)
         except Exception:
@@ -1897,7 +1898,7 @@ class MdAssets:
         return rel
 
 
-def _md_image_grid(items: list[tuple[str, str]], width: int = 220) -> str:
+def _md_image_grid(items: list[tuple[str, str]], width: int = 180) -> str:
     """Render images side by side via a small HTML table (relative-path src)."""
     if not items:
         return ""
