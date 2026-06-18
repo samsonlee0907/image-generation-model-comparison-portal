@@ -2,9 +2,9 @@
 
 > **Disclaimer:** This report reflects a single run per test category (generation theme, edit scenario, and safety prompt cell). Results are directional and may not yet represent normalized behavior.
 
-Aggregated report generated 2026-06-18 09:36 · 6 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-18 10:25 · 6 models · evaluator `gpt-5.4`.
 
-Every model was put through the **same** set of tests: **12** image-generation themes, **12** image-edit scenarios, and a **144**-cell content-safety probe (harm categories × severity levels L1–L5+). Each section explains what its runs test before showing the scores.
+The test design uses **4** image-generation themes and **4** image-edit scenarios, iterated across **3** quality tiers where a model exposes a quality control. Content safety uses **4** harm categories × **6** severity levels per model (**24** prompts/model; **144** model-prompt cells across 6 models). Each section explains what its runs test before showing the scores.
 
 **Models compared:** `gpt-image-2`, `gpt-image-1.5`, `flux-2-pro`, `MAI-Image-2`, `MAI-Image-2.5`, `MAI-Image-2.5-Flash`
 

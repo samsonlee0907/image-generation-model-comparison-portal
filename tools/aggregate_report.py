@@ -1721,12 +1721,14 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
         'represent normalized behavior.</div>',
         f'<p class="sub">Aggregated report generated {esc(dataset_meta["generated_at"])} · '
         f'{len(models_all)} models · evaluator <code>{esc(dataset_meta["evaluator"])}</code>.</p>',
-        f'<p class="sub">Every model was put through the <b>same</b> set of tests: '
-        f'<b>{dataset_meta["n_gen_runs"]}</b> image-generation themes, '
-        f'<b>{dataset_meta["n_edit_runs"]}</b> image-edit scenarios, and a '
-        f'<b>{dataset_meta["n_safety_cells"]}</b>-cell content-safety probe '
-        f'(harm categories × severity levels L1–L5+). Each section explains what its runs test before '
-        f'showing the scores.</p>',
+        f'<p class="sub">The test design uses <b>{dataset_meta["n_gen_themes"]}</b> image-generation themes '
+        f'and <b>{dataset_meta["n_edit_scenarios"]}</b> image-edit scenarios, iterated across '
+        f'<b>{dataset_meta["n_quality_tiers"]}</b> quality tiers where a model exposes a quality control. '
+        f'Content safety uses <b>{dataset_meta["n_safety_categories"]}</b> harm categories × '
+        f'<b>{dataset_meta["n_safety_levels"]}</b> severity levels per model '
+        f'(<b>{dataset_meta["n_safety_prompts"]}</b> prompts/model; '
+        f'<b>{dataset_meta["n_safety_cells"]}</b> model-prompt cells across '
+        f'{len(models_all)} models). Each section explains what its runs test before showing the scores.</p>',
         _legend(models_all, colors),
         '<nav class="toc" aria-label="Report sections">'
         '<a href="#scorecard">Executive scorecard</a>'
@@ -1879,7 +1881,11 @@ class MdAssets:
                 with Image.open(path) as im:
                     im = im.convert("RGB")
                     im.thumbnail((self.thumb_px, self.thumb_px))
-                    im.save(dest, format="JPEG", quality=82)
+                    canvas = Image.new("RGB", (self.thumb_px, self.thumb_px), "white")
+                    x = (self.thumb_px - im.width) // 2
+                    y = (self.thumb_px - im.height) // 2
+                    canvas.paste(im, (x, y))
+                    canvas.save(dest, format="JPEG", quality=82)
             else:
                 shutil.copyfile(path, dest)
         except Exception:
@@ -2543,10 +2549,14 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
                "may not yet represent normalized behavior.\n")
     out.append(f"Aggregated report generated {md_text(dataset_meta['generated_at'])} · "
                f"{len(models_all)} models · evaluator `{md_text(dataset_meta['evaluator'])}`.\n")
-    out.append(f"Every model was put through the **same** set of tests: **{dataset_meta['n_gen_runs']}** "
-               f"image-generation themes, **{dataset_meta['n_edit_runs']}** image-edit scenarios, and a "
-               f"**{dataset_meta['n_safety_cells']}**-cell content-safety probe (harm categories × severity "
-               "levels L1–L5+). Each section explains what its runs test before showing the scores.\n")
+    out.append(f"The test design uses **{dataset_meta['n_gen_themes']}** image-generation themes and "
+               f"**{dataset_meta['n_edit_scenarios']}** image-edit scenarios, iterated across "
+               f"**{dataset_meta['n_quality_tiers']}** quality tiers where a model exposes a quality control. "
+               f"Content safety uses **{dataset_meta['n_safety_categories']}** harm categories × "
+               f"**{dataset_meta['n_safety_levels']}** severity levels per model "
+               f"(**{dataset_meta['n_safety_prompts']}** prompts/model; "
+               f"**{dataset_meta['n_safety_cells']}** model-prompt cells across {len(models_all)} models). "
+               "Each section explains what its runs test before showing the scores.\n")
     out.append("**Models compared:** " + ", ".join(f"`{md_text(m)}`" for m in models_all) + "\n")
 
     out += ["## Contents", ""]
@@ -2680,6 +2690,12 @@ def main(argv: list[str] | None = None) -> int:
         "n_quality_runs": len(quality_runs),
         "n_gen_runs": len(gen_runs),
         "n_edit_runs": len(edit_runs),
+        "n_gen_themes": len({r["title"] for r in gen_runs}),
+        "n_edit_scenarios": len({r["title"] for r in edit_runs}),
+        "n_quality_tiers": len(tiers_present(quality_runs)),
+        "n_safety_categories": len({c["category"] for c in merged_cells.values() if c.get("category")}),
+        "n_safety_levels": len({c["level_label"] for c in merged_cells.values() if c.get("level_label")}),
+        "n_safety_prompts": len({prompt_id for _, prompt_id in merged_cells}),
         "n_safety_cells": len(merged_cells),
         "evaluator": evaluator,
     }
