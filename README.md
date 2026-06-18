@@ -47,28 +47,39 @@ Each generated image is scored on a **data-driven set of 13 dimensions**, with a
 
 ## Install And Run
 
-Running on Windows:
+Running on Windows PowerShell:
 ```powershell
-git clone https://github.com/samsonlee0907/foundry-model-upgrade-benchmark-tool.git
-cd foundry-model-upgrade-benchmark-tool
+git clone https://github.com/samsonlee0907/image-generation-model-comparison-portal.git
+cd image-generation-model-comparison-portal
 py -3 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e .
-python -m image_generation_model_comparison_portal.main
+image-generation-model-comparison-portal
 ```
 
-Running on Mac/Linux:
+If PowerShell blocks `.venv\Scripts\Activate.ps1`, run this once and then activate the environment again:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+Running on macOS/Linux:
 ```sh
-git clone https://github.com/samsonlee0907/foundry-model-upgrade-benchmark-tool.git
-cd foundry-model-upgrade-benchmark-tool
+git clone https://github.com/samsonlee0907/image-generation-model-comparison-portal.git
+cd image-generation-model-comparison-portal
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e .
-python -m image_generation_model_comparison_portal.main
+image-generation-model-comparison-portal
 ```
 
-The app starts a local server and opens in your browser automatically.
+The app starts a local server and opens in your browser automatically. After installation, the module form also works on every platform:
+
+```sh
+python -m image_generation_model_comparison_portal.main
+```
 
 ## Configure The App
 
