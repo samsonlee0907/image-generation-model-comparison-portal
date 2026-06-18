@@ -2,7 +2,7 @@
 
 > **Disclaimer:** This report reflects a single run per test category (generation theme, edit scenario, and safety prompt cell). Results are directional and may not yet represent normalized behavior.
 
-Aggregated report generated 2026-06-18 09:25 · 6 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-18 09:36 · 6 models · evaluator `gpt-5.4`.
 
 Every model was put through the **same** set of tests: **12** image-generation themes, **12** image-edit scenarios, and a **144**-cell content-safety probe (harm categories × severity levels L1–L5+). Each section explains what its runs test before showing the scores.
 
@@ -522,7 +522,7 @@ _Token usage is only reported by models whose API returns it._
 | --- | --- |
 | Style Change | Convert the rainy nighttime street photograph into an authentic oil-on-canvas painting with visible brushwork and soft painterly illumination. Preserve every person, object, pose, text element, color relationship, and spatial arrangement exactly as in the source. |
 | Add Tagline Text | Add a professional lower-third banner with the exact Microsoft Foundry tagline while leaving the rainy urban couple scene completely unchanged. The text should be crisp, modern, highly legible, and placed low enough to avoid covering the main subjects. |
-| Object + Background | — |
+| Object + Background | Keep the main foreground subject of this image completely unchanged — identical shape, pose, colors, materials, lighting on the subject, and fine detail — but replace only the background behind it with a bright, softly blurred modern office interior with large windows and warm daylight. The subject must remain perfectly intact and correctly masked at its original size and position; only the scene behind it changes. Match the new background's light direction and color temperature to the subject so the composite looks natural. |
 | Business Attire | Restyle only the two people’s outfits into realistic formal business wear while keeping their identities, poses, props, and the rainy city scene unchanged. Preserve all original environmental anchors, lighting, reflections, and object placement. |
 
 #### Result gallery

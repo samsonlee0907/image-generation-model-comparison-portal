@@ -259,6 +259,12 @@ def model_sort_key(name: str):
     return (MODEL_PREF_ORDER.index(name) if name in MODEL_PREF_ORDER else len(MODEL_PREF_ORDER), name)
 
 
+def scenario_target_text(run: dict[str, Any]) -> str:
+    """Scenario table text; fall back to prompt if LLM summarization was unavailable."""
+    text = run.get("summary") or run.get("prompt") or ""
+    return str(text).strip() or "—"
+
+
 def availability_region_sku(entry: dict[str, Any], measured: dict[str, Any]) -> str:
     """Region/SKU label, preferring official Azure documentation coverage."""
     official_regions = [str(x).strip() for x in (entry.get("official_regions") or []) if str(x).strip()]
@@ -1298,7 +1304,7 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
         seen_titles.add(run["title"])
         out.append(
             f'<tr><td class="label"><b>{esc(run["title"])}</b></td>'
-            f'<td class="label small">{esc(run.get("summary") or "—")}</td></tr>'
+            f'<td class="label small">{esc(scenario_target_text(run))}</td></tr>'
         )
     out.append("</table>")
 
@@ -2233,7 +2239,7 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
         if run["title"] in _seen:
             continue
         _seen.add(run["title"])
-        seen_titles.append([md_cell(run["title"]), md_cell(run.get("summary") or "—")])
+        seen_titles.append([md_cell(run["title"]), md_cell(scenario_target_text(run))])
     out.append(md_table(["Run", "What it targets"], seen_titles))
 
     # 5) Result gallery, grouped by quality tier.
