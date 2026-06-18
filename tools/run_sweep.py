@@ -264,6 +264,7 @@ def _run_edit(
         "promptGuidance": {"title": preset["title"], "dimensionMap": preset.get("dim_map", {})},
         "editSize": "1024x1024",
         "textQuality": quality,
+        "editQuality": quality,
         "outputFormat": "png",
         "sourceFiles": [{"name": reference_name, "dataUrl": reference_data_url}],
     }

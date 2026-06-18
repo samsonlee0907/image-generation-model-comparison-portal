@@ -51,6 +51,10 @@ BENCH_SYS = (
     "non-spatial relationships (actions/interactions), anatomy, light/shadows, colors, textures, and camera "
     "parameters. The dimensions and what they measure:\n"
     f"{_dimension_guidance_block()}\n"
+    "For image-edit benchmark generation, when source images are provided, inspect the CURRENT source image "
+    "and write an edit prompt grounded in that image's actual subjects, layout, objects, colors, text, and "
+    "scene anchors. The prompt must ask for a targeted change while preserving every source detail not "
+    "explicitly changed; do not reuse assumptions from any previous reference image.\n"
     'Respond with JSON only in this exact schema: {"prompt":"...","title":"2-4 words","dimension_map":'
     f"{_bench_dimension_schema()}" + "}"
 )
@@ -63,17 +67,20 @@ EVAL_SYS = (
     "You receive: 1) the original prompt, 2) the generated image, 3) optional Azure AI Vision analysis.\n"
     "For IMAGE EDIT evaluations you also receive the ORIGINAL SOURCE image before the EDITED RESULT "
     "image. In that case, judge the result against the source: reward faithful application of the "
-    "requested change together with preservation of the original details, objects, identities, "
-    "context, and layout that were not asked to change, and penalize unintended drift or lost detail.\n"
+    "requested change together with preservation of non-facial details, objects, people count, pose, "
+    "clothing, context, and layout that were not asked to change, and penalize unintended drift or lost detail.\n"
     "When CV data is provided, cross-reference detected object counts against prompt quantities. CV may miss "
     "small or occluded objects, so use it as evidence, not as the only source.\n"
-    "For images containing people, do not depend on face identity, facial detail, or facial sharpness because "
-    "safety filtering or model behavior may blur, mask, or suppress faces before analysis.\n"
+    "For images containing people, do NOT compare, infer, or score facial identity, face similarity, "
+    "facial features, face beauty, facial sharpness, or whether two faces are the same person. These "
+    "judgments are excluded for privacy/compliance reasons and because model or safety behavior may blur, "
+    "mask, suppress, or alter faces before analysis.\n"
     "In the anatomy_proportions dimension, prioritize whole-body coherence: gesture, pose, limb placement, "
     "shoulder-to-arm-to-hand ratios, hand structure, visible finger counts, body balance, and subject placement "
     "in frame.\n"
-    "If faces are obscured or low-detail, do not penalize that by itself unless the prompt explicitly requires "
-    "recognizable facial identity or facial expression and the rest of the body evidence also fails.\n"
+    "If faces are obscured, low-detail, or different, do not penalize that by itself; judge any people-related "
+    "requirements through non-facial evidence such as count, pose, clothing, hairstyle silhouette, body layout, "
+    "accessories, and the requested action.\n"
     'Every dimension must include "score" and "note". Provide "strengths" with 2 items, "weaknesses" with 2 '
     'items, and "summary" with 2-3 sentences.\n'
     "Respond with JSON only in this shape:\n"
@@ -598,7 +605,7 @@ class ApiClient:
             user_lines.extend(
                 [
                     "",
-                    "For edit mode, preserve the important identity, layout, and scene anchors from the source image unless the user explicitly asks to change them.",
+                    "For edit mode, preserve the important non-facial person attributes, layout, and scene anchors from the source image unless the user explicitly asks to change them.",
                     "Blend those preserved anchors into the rewritten prompt so a text-to-image fallback can reproduce the intended edit.",
                 ]
             )
@@ -634,11 +641,30 @@ class ApiClient:
             "used_enrichment": True,
         }
 
-    def generate_benchmark(self, idea: str) -> dict[str, Any]:
+    def generate_benchmark(
+        self,
+        idea: str,
+        mode: str = "text",
+        source_image_data_urls: list[str] | None = None,
+    ) -> dict[str, Any]:
         prompt_deployment = self._prompt_deployment()
         if not prompt_deployment:
             raise RuntimeError("Set the Evaluator LLM (or a prompt-modification model) first.")
+        source_image_data_urls = source_image_data_urls or []
         url = self._chat_url(prompt_deployment)
+        user_text = f'Mode: {mode}\nTheme: "{idea}"'
+        if mode == "edit":
+            user_text += (
+                "\nUse the attached source image(s) as the visual ground truth for this edit benchmark. "
+                "Describe the existing scene anchors from the image, then specify the intended edit."
+            )
+        content: str | list[dict[str, Any]]
+        if source_image_data_urls:
+            content = [{"type": "text", "text": user_text}]
+            for data_url in source_image_data_urls[:4]:
+                content.append({"type": "image_url", "image_url": {"url": data_url, "detail": "high"}})
+        else:
+            content = user_text
         payload = {
             "model": prompt_deployment,
             "max_completion_tokens": 4000,
@@ -646,7 +672,7 @@ class ApiClient:
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": BENCH_SYS},
-                {"role": "user", "content": f'Theme: "{idea}"'},
+                {"role": "user", "content": content},
             ],
         }
         response, data = self._post_chat(url, payload, self.timeout)
@@ -1204,10 +1230,12 @@ class ApiClient:
                 "This is an IMAGE EDIT evaluation. TWO images are attached: the FIRST is the "
                 "ORIGINAL SOURCE image, and the SECOND is the EDITED RESULT produced by the model. "
                 "Judge how faithfully the edit applied the requested change while RETAINING the "
-                "original details, context, objects, identities, and layout that the instruction did "
+                "original non-facial details, context, objects, people count, pose, clothing, and layout that the instruction did "
                 "not ask to change. Compare the result directly against the source — reward "
                 "preservation of unchanged content and penalize unintended drift, lost detail, or "
-                "altered objects/people/background. All fields are mandatory."
+                "altered objects/people/background. Do not compare or score facial identity, face "
+                "similarity, or facial features; use non-facial evidence for people-related judgments. "
+                "All fields are mandatory."
             )
         else:
             user_text = f'Original user prompt:\n"""{prompt}"""\n\nEvaluate the image. All fields are mandatory.'

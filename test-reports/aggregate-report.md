@@ -2,9 +2,9 @@
 
 > **Disclaimer:** This report reflects a single run per test category (generation theme, edit scenario, and safety prompt cell). Results are directional and may not yet represent normalized behavior.
 
-Aggregated report generated 2026-06-18 13:34 · 6 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-18 20:16 · 6 models · evaluator `gpt-5.4`.
 
-The test design uses **4** image-generation themes and **4** image-edit scenarios, iterated across **3** quality tiers where a model exposes a quality control. Content safety uses **4** harm categories × **6** severity levels per model (**24** prompts/model; **144** model-prompt cells across 6 models). Each section explains what its runs test before showing the scores.
+The test design uses **4** image-generation themes and **5** image-edit scenarios, iterated across **3** quality tiers where a model exposes a quality control. Content safety uses **4** harm categories × **6** severity levels per model (**24** prompts/model; **144** model-prompt cells across 6 models). Each section explains what its runs test before showing the scores.
 
 **Models compared:** `gpt-image-2`, `gpt-image-1.5`, `flux-2-pro`, `MAI-Image-2`, `MAI-Image-2.5`, `MAI-Image-2.5-Flash`
 
@@ -22,17 +22,17 @@ One row per model. **Generation / edit quality** is the average evaluator score 
 
 | Model | Generation quality | Edit quality | Severe-prompt gating (L4–L5+) | Measured latency |
 | --- | --- | --- | --- | --- |
-| gpt-image-2 | **9.2** 🏆 | **9.0** 🏆 | 100% | 77s |
+| gpt-image-2 | **9.2** 🏆 | **9.0** 🏆 | 100% | 80s |
 | gpt-image-1.5 | 8.4 | 7.9 | 100% | 30s |
-| flux-2-pro | 6.7 | 8.2 | 67% | **19s** 🏆 |
+| flux-2-pro | 6.7 | 8.4 | 67% | **19s** 🏆 |
 | MAI-Image-2 | 8.0 | N/A | 92% | 30s |
-| MAI-Image-2.5 | 8.3 | 8.7 | 83% | 39s |
-| MAI-Image-2.5-Flash | 8.0 | 8.8 | 92% | 31s |
+| MAI-Image-2.5 | 8.3 | 8.9 | 83% | 39s |
+| MAI-Image-2.5-Flash | 8.0 | 8.9 | 92% | 32s |
 
 
 ## 1 · Image Generation Quality (including editing)
 
-How well each model turns a prompt into an image, scored by the evaluator LLM across 13 benchmark-aligned dimensions. Text-to-image generation and prompt-guided image editing are reported as two subsections below.
+How well each model turns a prompt into an image, scored by the evaluator LLM across 13 benchmark-aligned dimensions. Text-to-image generation, standard prompt-guided editing, and the focused noise/object-removal edit are reported as separate subsections below.
 
 The sweep ran every theme at **low → medium → high** quality. The leaderboard below judges every model at its **best-effort (high)** setting — so a model that honours the quality knob isn't dragged down by its own low/medium runs — and the **Quality-tier scaling** table in each subsection isolates how the knob moves each model that exposes one. Models whose API exposes a quality tier (the GPT-Image API) take longer to render and bill more image-output tokens at `high`. FLUX doesn't take this enum, so the portal translates the same tier into FLUX's own fidelity controls — at `high` it sends inference **steps**≈50 and a **guidance** scale≈4.0 (the prompt itself is never rewritten) so FLUX renders at a comparable effort level rather than its default. The MAI models expose no equivalent knob besides output **resolution**, so they run at each deployment's default fidelity regardless of tier. (If a hosted FLUX pipeline pins these parameters internally, the portal gracefully drops them and falls back to the default.) Deeper dive: [Image Quality Evaluation methodology](../docs/IMAGE_QUALITY_EVALUATION.md) — how the 13 dimensions are defined and scored.
 
@@ -383,13 +383,11 @@ Use a clean, flat, corporate vector style with accurate proportional bar heights
 
 ### Prompt-guided image editing
 
-<img src="aggregate-report-assets/mdthumb-v3-edit-reference.jpg" width="320">
+#### Edit source references
 
-_Reference image — every edit below started from this exact source._
+Edit scenarios are judged against their own source image. Each reference below is the visual ground truth for the scenarios listed on that card, so the result can be compared against the correct starting point.
 
-Nighttime rainy city street with two adults walking toward camera; man left in navy coat and scarf carrying a shopping bag, woman right in burgundy coat holding a clear umbrella, wet reflections, visible breath, blue 'MOON CAFE' neon sign, and bicycles on the right.
-
-Each edit scenario asks for one targeted change while keeping everything else identical, so the results can be compared directly against this image to judge how well the original detail is retained.
+<table><tr><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-reference-1.jpg" width="180" height="180"><br><sub>**edit-reference.jpg** — scenarios: Style Change, Add Tagline Text, Object + Background, Business Attire — Nighttime rainy city street with two adults walking toward camera; man left in navy coat and scarf carrying a shopping bag, woman right in burgundy coat holding a clear umbrella, wet reflections, visible breath, blue 'MOON CAFE' neon sign, and bicycles on the right.</sub></td></tr></table>
 
 #### Results at a glance
 
@@ -722,6 +720,114 @@ Change the clothing of the people in this image to formal business attire — ta
 <table><tr><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-high-business-attire-gpt-image-2.jpg" width="180" height="180"><br><sub>gpt-image-2 — 9.3</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-high-business-attire-gpt-image-1-5.jpg" width="180" height="180"><br><sub>gpt-image-1.5 — 8.4</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-high-business-attire-flux-2-pro.jpg" width="180" height="180"><br><sub>flux-2-pro — 8.9</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-business-attire-mai-image-2-native.jpg" width="180" height="180"><br><sub>MAI-Image-2 — 7.5 (fallback) · native (same across tiers)</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-business-attire-mai-image-2-5-native.jpg" width="180" height="180"><br><sub>MAI-Image-2.5 — 9.5 · native (same across tiers)</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-business-attire-mai-image-2-5-flash-native.jpg" width="180" height="180"><br><sub>MAI-Image-2.5-Flash — 9.4 · native (same across tiers)</sub></td></tr></table>
 
 
+### Prompt-guided image editing - Noise Removal
+
+#### Edit source references
+
+Edit scenarios are judged against their own source image. Each reference below is the visual ground truth for the scenarios listed on that card, so the result can be compared against the correct starting point.
+
+<table><tr><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-noise-removal-reference-1.jpg" width="180" height="180"><br><sub>**ObjectRemovalTest.png** — scenarios: Park Poster Cleanup — Square ad-style park photo with one centered full-body man on a green lawn, face obscured, white shirt, beige chinos, white sneakers, left hand holding a blue-capped water bottle, right-hand thumbs-up. Curved stone path, hedges, trees, pink roses, yellow flowers, warm upper-right sunlight, shallow depth of field, top text 'LOOK UP, FEEL GOOD,' bottom text 'Drink Pure. Smile Higher,' plus three background wanderers to remove.</sub></td></tr></table>
+
+#### Results at a glance
+
+Across the 1 edit scenario, **flux-2-pro** led with an average quality score of **9.70/10**, ahead of MAI-Image-2.5 (9.60); gpt-image-1.5 trailed at 8.30, a 1.40-point spread from top to bottom. The leaderboard below ranks every comparable model; the detailed breakdown follows.
+
+_Average quality score across all 1 edit scenario (0–10, higher is better)._
+
+| Rank | Model | Avg quality (0–10) | Runs |
+| --- | --- | --- | --- |
+| 1 | flux-2-pro | **9.7** | 1 |
+| 2 | MAI-Image-2.5 | 9.6 | 1 |
+| 3 | MAI-Image-2.5-Flash | 9.6 | 1 |
+| 4 | gpt-image-2 | 8.3 | 1 |
+| 5 | gpt-image-1.5 | 8.3 | 1 |
+
+#### How we evaluate — the 13 quality dimensions
+
+The evaluator LLM scores every image on these axes (each 0–10), aligned with public text-to-image benchmarks (GenEval, T2I-CompBench, DPG-Bench); the overall score is their aggregate. Axes marked ★ are the detail-retention axes that matter most when judging an edit.
+
+| Dimension | What it measures |
+| --- | --- |
+| **★ Prompt Adherence** | How fully the image satisfies everything the prompt asked for. |
+| **★ Object Accuracy** | Whether the requested objects are present and correctly depicted. |
+| **Object Counting** | Whether the number of each object matches the prompt. |
+| **★ Attribute Binding** | Whether attributes (colour, size, material) attach to the right objects. |
+| **Spatial Relationship** | Whether objects sit where described (left/right, on/under, behind). |
+| **Action & Interaction** | Whether the described actions and interactions actually happen. |
+| **★ Text Rendering** | Legibility and spelling of any words the prompt asks to render. |
+| **Anatomy** | Plausibility of human and animal anatomy and proportions. |
+| **Physics & Realism** | Believable lighting, shadows, reflections and physical consistency. |
+| **Color Accuracy** | Whether colours and tones match what was requested. |
+| **★ Fine Detail** | Sharpness and richness of fine texture and small details. |
+| **Composition & Aesthetics** | Overall framing, balance and visual appeal. |
+| **Style Adherence** | Whether the requested art or visual style is followed. |
+
+#### Per-run scores
+
+| Run | gpt-image-2 | gpt-image-1.5 | flux-2-pro | MAI-Image-2 | MAI-Image-2.5 | MAI-Image-2.5-Flash |
+| --- | --- | --- | --- | --- | --- | --- |
+| Park Poster Cleanup | 8.3 | 8.3 | **9.7** | N/A | 9.6 | 9.6 |
+
+> **Excluded from the edit comparison:** MAI-Image-2. These models do not support image-to-image editing, so every run silently fell back to plain text-to-image; their edit quality is reported as **N/A** and left out of the leaderboard and heatmap. Their fallback images still appear in the gallery for reference.
+
+#### Dimension heatmap — average score per benchmark axis
+
+_Detail-retention axes (most important for edits) are marked ★: Prompt Adherence, Object Accuracy, Attribute Binding, Text Rendering, Fine Detail._
+
+| Model | Prompt★ | Objects★ | Count | Binding★ | Spatial | Action | Text★ | Anatomy | Physics | Color | Detail★ | Aesthetics | Style | Avg |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| gpt-image-2 | 7.0 | 8.0 | 10.0 | 9.0 | 8.0 | 9.0 | 8.0 | 9.0 | 9.0 | 9.0 | 8.0 | 8.0 | 9.0 | **8.3** |
+| gpt-image-1.5 | 7.0 | 8.0 | 10.0 | 9.0 | 8.0 | 9.0 | 8.0 | 8.0 | 9.0 | 9.0 | 8.0 | 9.0 | 9.0 | **8.3** |
+| flux-2-pro | 9.0 | 10.0 | 10.0 | 10.0 | 9.0 | 10.0 | 10.0 | 10.0 | 9.0 | 10.0 | 9.0 | 10.0 | 10.0 | **9.7** |
+| MAI-Image-2.5 | 9.0 | 9.0 | 10.0 | 10.0 | 9.0 | 10.0 | 10.0 | 10.0 | 9.0 | 10.0 | 9.0 | 10.0 | 10.0 | **9.6** |
+| MAI-Image-2.5-Flash | 9.0 | 9.0 | 10.0 | 10.0 | 9.0 | 10.0 | 10.0 | 10.0 | 9.0 | 10.0 | 9.0 | 10.0 | 10.0 | **9.6** |
+
+#### Latency & cost
+
+| Model | Avg generation latency | Avg image-gen tokens |
+| --- | --- | --- |
+| gpt-image-2 | 163.2s | 8322 |
+| gpt-image-1.5 | 49.8s | 5028 |
+| flux-2-pro | 19.5s | — |
+| MAI-Image-2 | 32.6s | — |
+| MAI-Image-2.5 | 43.8s | — |
+| MAI-Image-2.5-Flash | 44.5s | — |
+
+_Token usage is only reported by models whose API returns it._
+
+#### Recurring strengths & weaknesses
+
+- **gpt-image-2** — _Strengths:_ Successfully removes all three background wanderers so the final image contains exactly one visible person.; Preserves the overall commercial park-photo look, including the centered man, bottle, thumbs-up pose, warm lighting, and shallow depth of field. · _Weaknesses:_ The top and bottom text overlays are not preserved exactly; their scale, weight, and placement visibly change from the source.; Several untouched elements drift from the source, including flower/path details and some regenerated subject textures, so the edit is not strictly minimal-change.
+- **gpt-image-1.5** — _Strengths:_ Successfully removes all three background wanderers so the final image contains exactly one visible person.; Preserves the overall ad-style look, key outfit/prop/action cues, warm lighting, and readable top/bottom text. · _Weaknesses:_ The edit is not strictly minimal-change: the man, flowers, path, and other preserved regions show noticeable regeneration drift.; Text overlays and small details such as shirt folds and bottle-label rendering are close but not exact copies of the source.
+- **flux-2-pro** — _Strengths:_ The requested edit was applied cleanly: all three background people were removed while the main subject, pose, bottle, wardrobe, text, and framing were preserved.; Typography, lighting, color palette, and overall commercial-photo style remain highly faithful to the source image. · _Weaknesses:_ Some inpainted background regions look slightly smoother or less locally detailed than the original scene.; A few path/hedge contours in the removed-person areas show subtle scene simplification rather than pixel-perfect preservation.
+- **MAI-Image-2** — _Strengths:_ Keeps the main subject, outfit colors, bottle, and thumbs-up gesture in a plausible commercial park-photo style.; Text remains readable and the overall image is visually coherent with believable lighting and depth of field. · _Weaknesses:_ The edit introduces major scene drift instead of performing a strict minimal-change removal of only the three background wanderers.; Person count appears incorrect because faint background figures remain, and the original text styling, path layout, flowers, and pose are not preserved exactly.
+- **MAI-Image-2.5** — _Strengths:_ Successfully removes all three background wanderers while preserving the main subject, pose, clothing, bottle, and typography.; Maintains the original commercial-photo look with consistent lighting, color, framing, and believable inpainting. · _Weaknesses:_ The inpainted left and right background regions are not perfectly identical to the source and show mild content reinterpretation.; Fine background texture and continuity in the edited areas are slightly smoother than the untouched parts of the image.
+- **MAI-Image-2.5-Flash** — _Strengths:_ Successfully removes all three background wanderers, leaving exactly one visible person as requested.; Preserves the main subject’s pose, clothing, bottle, typography, lighting, and overall ad composition with high fidelity. · _Weaknesses:_ The inpainted left and right background regions are not perfectly identical to the source and show slight texture/layout drift.; A few small details, especially around the bottle label and nearby foliage, look subtly re-rendered rather than fully preserved.
+
+#### How each edit scenario is tested
+
+| Run | What it targets |
+| --- | --- |
+| Park Poster Cleanup | Remove the three background people while keeping the ad image otherwise identical. The centered man, bottle, park setting, lighting, flowers, and both text overlays must remain unchanged. |
+
+#### Result gallery
+
+**Park Poster Cleanup**
+
+Remove the three background people while keeping the ad image otherwise identical. The centered man, bottle, park setting, lighting, flowers, and both text overlays must remain unchanged.
+
+<details>
+<summary>Show the prompt sent to the models</summary>
+
+```text
+Using the attached square photo as the visual ground truth, keep the composition identical: one full-body adult man centered on a green lawn in a sunlit park, wearing a white button-up linen shirt, beige chinos, and white sneakers, with his face still obscured exactly as shown. Preserve his pose precisely: left hand holding one clear plastic water bottle with a blue cap and blue label, right hand giving a thumbs-up. Keep the curved stone path, hedges, tree trunks, warm late-afternoon sunlight from the upper right, soft lawn shadows, shallow depth of field, and all visible flowers unchanged. Preserve both text overlays exactly, legible and in the same positions: top 'LOOK UP, FEEL GOOD' and bottom 'Drink Pure. Smile Higher.' Edit only one thing: remove the three background wanderers—one person on the far left and two people on the right—and seamlessly inpaint those areas with matching grass, path, bushes, and blurred forest background so the final image contains exactly one person total and no other changes.
+```
+
+</details>
+
+<table><tr><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-noise-removal-park-poster-cleanup-gpt-image-2.jpg" width="180" height="180"><br><sub>gpt-image-2 — 8.3</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-noise-removal-park-poster-cleanup-gpt-image-1-5.jpg" width="180" height="180"><br><sub>gpt-image-1.5 — 8.3</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-noise-removal-park-poster-cleanup-flux-2-pro.jpg" width="180" height="180"><br><sub>flux-2-pro — 9.7</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-noise-removal-park-poster-cleanup-mai-image-2.jpg" width="180" height="180"><br><sub>MAI-Image-2 — 5.4 (fallback)</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-noise-removal-park-poster-cleanup-mai-image-2-5.jpg" width="180" height="180"><br><sub>MAI-Image-2.5 — 9.6</sub></td><td align="center" valign="top" width="180"><img src="aggregate-report-assets/mdthumb-v3-edit-noise-removal-park-poster-cleanup-mai-image-2-5-flash.jpg" width="180" height="180"><br><sub>MAI-Image-2.5-Flash — 9.6</sub></td></tr></table>
+
+
 ## 2 · Content Safety
 
 Each model received prompts that escalate in severity across four harm categories, and we record whether the platform **gated** the request (input/output filtered) or the model **produced** an image. There is deliberately **no single safety score**: blocking a benign prompt and blocking a harmful one mean opposite things, so we report the genuinely-unsafe (L4–L5+) gating rate as the headline and treat the lower tiers as a sensitivity profile.
@@ -852,12 +958,12 @@ Capacity, throughput and latency observed from the configured deployments. The *
 
 | Model | Configured region and deployment type | Configured capacity | Measured latency (avg · ×fastest) | Published default / scaling | Source |
 | --- | --- | --- | --- | --- | --- |
-| gpt-image-2 | Sweden Central · GlobalStandard · 2026-04-21 | **9 req/min (RPM)** (RPM only (no separate token bucket on this image deployment)) | 76.6s · 4.1× | Per-subscription TPM/RPM, tiered; raise via an Azure quota-increase request · Image deployments start with a modest images-per-minute allowance that scales with assigned TPM/RPM quota | [Azure Foundry region availability matrix (gpt-image-2)](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability) |
-| gpt-image-1.5 | Sweden Central · GlobalStandard · 2025-12-16 | **9 req/min (RPM)** (RPM only (no separate token bucket on this image deployment)) | 29.7s · 1.6× | Per-subscription TPM/RPM, tiered; raise via an Azure quota-increase request · Image deployments start with a modest images-per-minute allowance that scales with assigned TPM/RPM quota | [Azure Foundry region availability matrix (gpt-image-1.5)](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability) |
+| gpt-image-2 | Sweden Central · GlobalStandard · 2026-04-21 | **9 req/min (RPM)** (RPM only (no separate token bucket on this image deployment)) | 80.1s · 4.3× | Per-subscription TPM/RPM, tiered; raise via an Azure quota-increase request · Image deployments start with a modest images-per-minute allowance that scales with assigned TPM/RPM quota | [Azure Foundry region availability matrix (gpt-image-2)](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability) |
+| gpt-image-1.5 | Sweden Central · GlobalStandard · 2025-12-16 | **9 req/min (RPM)** (RPM only (no separate token bucket on this image deployment)) | 30.5s · 1.6× | Per-subscription TPM/RPM, tiered; raise via an Azure quota-increase request · Image deployments start with a modest images-per-minute allowance that scales with assigned TPM/RPM quota | [Azure Foundry region availability matrix (gpt-image-1.5)](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure-region-availability) |
 | flux-2-pro | Sweden Central · GlobalStandard · FLUX.2-pro v1 | **4 req/min (RPM)** (RPM only) | **18.6s · 1.0×** | Global Standard shared quota pool per subscription (not per-region) · Per-subscription RPM/TPM against the shared Global Standard pool; confirm the model SKU default in the portal | [Deploy and use FLUX models in Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-flux) |
 | MAI-Image-2 | Sweden Central · GlobalStandard · 2026-02-20 | **9 req/min (RPM)** (RPM only) | 30.3s · 1.6× | Foundry first-party quota; managed per subscription (see model card) · Optimized for high-volume / always-on workloads; ~2x faster than the prior generation per Microsoft | [Deploy and use MAI image models in Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-mai) |
-| MAI-Image-2.5 | Sweden Central · GlobalStandard · 2026-06-02 | **2 req/min (RPM)** (RPM only) | 39.4s · 2.1× | Foundry first-party quota; managed per subscription (see model card) · Flash variant targets fast, scalable production workloads; best price-to-performance ELO per Microsoft | [Deploy and use MAI image models in Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-mai) |
-| MAI-Image-2.5-Flash | Sweden Central · GlobalStandard · 2026-06-02 | **2 req/min (RPM)** (RPM only) | 31.2s · 1.7× | Foundry first-party quota; managed per subscription (see model card) · Flash variant targets fast, scalable production workloads; best price-to-performance ELO per Microsoft | [Deploy and use MAI image models in Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-mai) |
+| MAI-Image-2.5 | Sweden Central · GlobalStandard · 2026-06-02 | **2 req/min (RPM)** (RPM only) | 39.3s · 2.1× | Foundry first-party quota; managed per subscription (see model card) · Flash variant targets fast, scalable production workloads; best price-to-performance ELO per Microsoft | [Deploy and use MAI image models in Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-mai) |
+| MAI-Image-2.5-Flash | Sweden Central · GlobalStandard · 2026-06-02 | **2 req/min (RPM)** (RPM only) | 32.1s · 1.7× | Foundry first-party quota; managed per subscription (see model card) · Flash variant targets fast, scalable production workloads; best price-to-performance ELO per Microsoft | [Deploy and use MAI image models in Microsoft Foundry](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-mai) |
 
 > **About the configured capacity:** azure_measured values are the request-per-minute (RPM) limits actually configured on the test deployments (Global Standard, Sweden Central) at the time the latencies were recorded, read from Azure. They are the per-deployment defaults for this subscription and can be raised via a quota request; they are not vendor-wide maximums. These image deployments are RPM-limited and do not expose a separate TPM bucket. All models were called sequentially (one request at a time) under these limits, so the measured latency reflects single-request responsiveness, not throughput under concurrency.
 

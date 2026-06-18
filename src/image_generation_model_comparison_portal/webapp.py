@@ -29,6 +29,14 @@ from image_generation_model_comparison_portal.services import ApiClient, image_d
 WEB_DIR = Path(__file__).with_name("web")
 REPORT_BUILDER = Path(__file__).with_name("report_builder.mjs")
 PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+STATIC_CONTENT_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
 
 SAFETY_LEVEL_LEGEND = [
     {
@@ -173,9 +181,16 @@ class RunManager:
         save_config(config)
         return {"ok": True}
 
-    def generate_benchmark(self, config_data: dict[str, Any], idea: str) -> dict[str, Any]:
+    def generate_benchmark(
+        self,
+        config_data: dict[str, Any],
+        idea: str,
+        mode: str = "text",
+        source_files: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         config = AppConfig.from_dict(config_data)
-        return ApiClient(config).generate_benchmark(idea)
+        source_image_data_urls = [file["dataUrl"] for file in (source_files or []) if file.get("dataUrl")]
+        return ApiClient(config).generate_benchmark(idea, mode=mode, source_image_data_urls=source_image_data_urls)
 
     def regenerate_safety_prompts(
         self, config_data: dict[str, Any], instruction: str, prompts: list[dict[str, Any]] | None
@@ -248,6 +263,7 @@ class RunManager:
             "textQuality": payload.get("textQuality", "high"),
             "outputFormat": payload.get("outputFormat", "png"),
             "editSize": payload.get("editSize", "1024x1024"),
+            "editQuality": payload.get("editQuality", payload.get("textQuality", "high")),
             "status": "running",
             "phase": "generating",
             "progress": {"label": "Generating", "done": 0, "total": len(models)},
@@ -541,6 +557,7 @@ class RunManager:
             "mode": run.get("mode"),
             "modeLabel": {"text": "Text-to-Image", "edit": "Image Edit"}.get(run.get("mode"), run.get("mode")),
             "textQuality": run.get("textQuality"),
+            "editQuality": run.get("editQuality"),
             "textSize": run.get("textSize"),
             "editSize": run.get("editSize"),
             "prompt": run.get("prompt"),
@@ -901,6 +918,7 @@ class RunManager:
     def _submit_generation(self, run_id: str, client: ApiClient, model: ModelConfig) -> None:
         run = self.runs[run_id]
         on_rate_limit = self._make_generation_rate_limit_cb(run_id, model.name)
+        edit_quality = run.get("editQuality") or run.get("textQuality", "high")
         if run["mode"] == "text":
             self._submit(
                 run_id,
@@ -924,7 +942,7 @@ class RunManager:
                 model,
                 run["effectivePrompt"],
                 run["editSize"],
-                "high",
+                edit_quality,
                 run["outputFormat"],
                 on_rate_limit,
             )
@@ -940,7 +958,7 @@ class RunManager:
             run["maskPath"],
             run["editSize"],
             run["outputFormat"],
-            run["textQuality"],
+            edit_quality,
             on_rate_limit,
         )
 
@@ -1216,11 +1234,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if parsed.path.startswith("/static/"):
             local = WEB_DIR / parsed.path.removeprefix("/static/")
-            if local.suffix == ".css":
-                self._serve_file(local, "text/css; charset=utf-8")
-                return
-            if local.suffix == ".js":
-                self._serve_file(local, "application/javascript; charset=utf-8")
+            content_type = STATIC_CONTENT_TYPES.get(local.suffix.lower())
+            if content_type:
+                self._serve_file(local, content_type)
                 return
         if parsed.path == "/api/bootstrap":
             self._json_response(HTTPStatus.OK, RUNS.bootstrap_payload())
@@ -1258,7 +1274,12 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/benchmark":
             try:
-                payload = RUNS.generate_benchmark(data["config"], data["idea"])
+                payload = RUNS.generate_benchmark(
+                    data["config"],
+                    data["idea"],
+                    mode=data.get("mode", "text"),
+                    source_files=data.get("sourceFiles") or [],
+                )
             except Exception as exc:
                 self._json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return

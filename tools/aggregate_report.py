@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import base64
 import glob
+import hashlib
 import html
 import io
 import json
@@ -265,8 +266,54 @@ def scenario_target_text(run: dict[str, Any]) -> str:
     return str(text).strip() or "—"
 
 
-def first_source_image(runs: list[dict[str, Any]]) -> Path | None:
-    return next((r.get("source_image") for r in runs if r.get("source_image")), None)
+def is_noise_removal_edit_run(run: dict[str, Any]) -> bool:
+    """Whether an edit run belongs to the targeted noise/object-removal section."""
+
+    source_name = str(run.get("source_image_name") or "").lower()
+    title = str(run.get("title") or "").lower()
+    prompt = str(run.get("prompt") or "").lower()
+    return (
+        source_name == "objectremovaltest.png"
+        or "noise removal" in title
+        or "cleanup" in title
+        or ("remove" in prompt and "background people" in prompt)
+    )
+
+
+def source_references(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return unique edit source/reference images and the scenarios using each.
+
+    Modern edit exports copy the source image into each run folder. Multiple
+    scenarios may therefore have separate files that represent the same source;
+    grouping by manifest name plus content hash keeps the report readable while
+    still showing truly distinct references.
+    """
+
+    refs: dict[tuple[str, str], dict[str, Any]] = {}
+    for run in runs:
+        src = run.get("source_image")
+        if not src:
+            continue
+        try:
+            digest = hashlib.sha256(src.read_bytes()).hexdigest()
+        except OSError:
+            digest = str(src)
+        name = run.get("source_image_name") or src.name
+        key = (str(name).lower(), digest)
+        ref = refs.setdefault(
+            key,
+            {
+                "path": src,
+                "name": name,
+                "summary": run.get("source_summary") or "",
+                "scenarios": [],
+            },
+        )
+        if run.get("title") not in ref["scenarios"]:
+            ref["scenarios"].append(run.get("title") or "run")
+        if not ref.get("summary") and run.get("source_summary"):
+            ref["summary"] = run["source_summary"]
+    return list(refs.values())
 
 
 def first_source_summary(runs: list[dict[str, Any]]) -> str:
@@ -356,10 +403,15 @@ def load_quality_runs(results_dir: Path) -> list[dict[str, Any]]:
             continue
         mode = data.get("mode", "text")
         category = "edit" if mode == "edit" else "generation"
-        quality = (data.get("textQuality") or "").strip().lower()
+        quality_field = data.get("editQuality") if category == "edit" else data.get("textQuality")
+        quality = (quality_field or data.get("textQuality") or "").strip().lower()
         if quality not in QUALITY_ORDER:
             quality = ""
         run_dir = Path(path).parent
+        source_items = data.get("sourceImages") or []
+        source_name = ""
+        if source_items and isinstance(source_items[0], dict):
+            source_name = str(source_items[0].get("name") or "")
         models: dict[str, Any] = {}
         for row in data.get("results", []):
             name = (row.get("model") or {}).get("name") or "?"
@@ -396,6 +448,7 @@ def load_quality_runs(results_dir: Path) -> list[dict[str, Any]]:
                 "summary": (data.get("promptGuidance") or {}).get("summary") or "",
                 "source_summary": (data.get("promptGuidance") or {}).get("sourceSummary") or "",
                 "source_image": _find_source_image(data, run_dir) if category == "edit" else None,
+                "source_image_name": source_name,
                 "dir": run_dir,
                 "models": models,
             }
@@ -977,8 +1030,9 @@ def _quality_narrative(agg: dict, ranked: list[str], noun_plural: str,
     if not scored:
         return "No comparable scores were produced for this category."
     n = len(agg["runs"])
+    noun_count = noun_plural[:-1] if n == 1 and noun_plural.endswith("s") else noun_plural
     where = (f"At each model's best-effort (high) setting across {n} {noun_plural}"
-             if multi_tier else f"Across the {n} {noun_plural}")
+             if multi_tier else f"Across the {n} {noun_count}")
     top_m, top_v = scored[0]
     s = (f"{where}, <b>{esc(top_m)}</b> led with an average quality score of "
          f"<b>{top_v:.2f}/10</b>")
@@ -1115,19 +1169,29 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
         return heading + f'<p class="muted">No {esc(title.lower())} runs found.</p>'
     out = [heading]
     if emphasize_retention and not no_images:
-        src = first_source_image(runs)
-        uri = embed_image(src, no_images, thumb_px)
-        if uri:
-            src_sum = first_source_summary(runs)
-            out.append(
-                '<div class="refimg"><figure><img src="' + uri + '" alt="reference image">'
-                '<figcaption>Reference image — every edit below started from this exact source.</figcaption>'
-                '</figure><div><h4 style="margin-top:0">The source being edited</h4>'
-                f'<p class="small muted">{esc(src_sum)}</p>'
-                '<p class="legend">Each edit scenario asks for one targeted change while keeping everything '
-                'else identical, so the results can be compared directly against this image to judge how '
-                'well the original detail is retained.</p></div></div>'
-            )
+        refs = source_references(runs)
+        if refs:
+            figs = []
+            for ref in refs:
+                uri = embed_image(ref.get("path"), no_images, thumb_px)
+                if not uri:
+                    continue
+                scenarios = ", ".join(str(x) for x in ref.get("scenarios") or [])
+                summary = ref.get("summary") or "Used as the visual ground truth for the scenarios listed below."
+                figs.append(
+                    '<figure><img src="' + uri + f'" alt="{esc(ref.get("name") or "edit source reference")}">'
+                    f'<figcaption><b>{esc(ref.get("name") or "Edit source")}</b><br>'
+                    f'<span class="small muted">Scenarios: {esc(scenarios)}</span><br>'
+                    f'<span class="small">{esc(summary)}</span></figcaption></figure>'
+                )
+            if figs:
+                out.append(
+                    '<div class="refimg"><div><h4 style="margin-top:0">Edit source references</h4>'
+                    '<p class="legend">Edit scenarios are judged against their own source image. Each reference '
+                    'below is the visual ground truth for the scenarios listed on that card, so the result can be '
+                    'compared against the correct starting point.</p></div>'
+                    f'<div class="gallery">{"".join(figs)}</div></div>'
+                )
 
     # Ranking used by both the narrative and the leaderboard.
     ranked = sorted(head_comp, key=lambda m: (head["models"][m]["overall_avg"] is None,
@@ -1147,7 +1211,7 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
                    'high steps/guidance preset, and MAI-Image at its single native operating point.</div>')
     else:
         out.append('<div class="legend">Average quality score across all '
-                   f'{len(runs)} {noun_plural} (0–10, higher is better).</div>')
+                   f'{len(runs)} {noun if len(runs) == 1 else noun_plural} (0–10, higher is better).</div>')
     out.append(svg_hbars(bar_rows, max_val=max(10, max_overall)))
 
     # 1b) Quality-tier scaling — how the low/medium/high knob moves each model
@@ -1175,7 +1239,7 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
     # 3) Scoring details — per-run scores, grouped by quality tier.
     out.append("<h3>Per-run scores</h3>")
     tiers = tiers_present(runs)
-    grouped = bool(tiers) and any(r.get("quality") for r in runs)
+    grouped = multi_tier and any(r.get("quality") for r in runs)
     # No-knob families (MAI) send an identical request at every tier and may be
     # generated only once by the sweep. Reuse their single best-effort score in
     # every tier so the table never shows a confusing blank, marked "(native)".
@@ -1735,11 +1799,14 @@ def _doc_link_md(ref: dict, key: str) -> str:
     return f"[{md_text(d.get('label', key))}]({href})"
 
 
-def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_px,
+def render_html(gen, edit, edit_detail, edit_noise, safety, safety_runs, dataset_meta, no_images, thumb_px,
                 ref=None, latency=None) -> str:
     ref = ref or {"models": {}, "assumptions": {}}
     latency = latency or {}
-    models_all = sorted(set(gen["order"]) | set(edit["order"]) | set(safety["models"]), key=model_sort_key)
+    models_all = sorted(
+        set(gen["order"]) | set(edit["order"]) | set(edit_detail["order"]) | set(edit_noise["order"]) | set(safety["models"]),
+        key=model_sort_key,
+    )
     colors = color_for_models(models_all)
     parts = [
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>",
@@ -1774,8 +1841,9 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
     parts.append('<h2 id="quality">1 · Image Generation Quality '
                  '<span class="muted" style="font-size:16px">(including editing)</span></h2>')
     parts.append('<p class="sub">How well each model turns a prompt into an image, scored by the evaluator '
-                 'LLM across 13 benchmark-aligned dimensions. Text-to-image generation and prompt-guided '
-                 'image editing are reported as two subsections below.</p>')
+                 'LLM across 13 benchmark-aligned dimensions. Text-to-image generation, standard '
+                 'prompt-guided editing, and the focused noise/object-removal edit are reported as separate '
+                 'subsections below.</p>')
     _ql_link = _doc_link_html(ref, "image_quality")
     _swept = tiers_present(gen["runs"]) or tiers_present(edit["runs"])
     if len(_swept) > 1:
@@ -1802,9 +1870,21 @@ def render_html(gen, edit, safety, safety_runs, dataset_meta, no_images, thumb_p
     parts.append(render_quality_section(gen, colors, "Text-to-image generation", "generation",
                                         emphasize_retention=False, no_images=no_images, thumb_px=thumb_px,
                                         title_tag="h3", title_class="cat-sub"))
-    parts.append(render_quality_section(edit, colors, "Prompt-guided image editing", "edit",
+    parts.append(render_quality_section(edit_detail, colors, "Prompt-guided image editing", "edit",
                                         emphasize_retention=True, no_images=no_images, thumb_px=thumb_px,
                                         title_tag="h3", title_class="cat-sub"))
+    if edit_noise["order"]:
+        parts.append(render_quality_section(
+            edit_noise,
+            colors,
+            "Prompt-guided image editing - Noise Removal",
+            "edit-noise-removal",
+            emphasize_retention=True,
+            no_images=no_images,
+            thumb_px=thumb_px,
+            title_tag="h3",
+            title_class="cat-sub",
+        ))
 
     parts.append(render_safety_section(safety, safety_runs, colors, ref))
     parts.append(render_pricing_section(ref, models_all, colors))
@@ -1957,8 +2037,9 @@ def _md_quality_narrative(agg: dict, ranked: list[str], noun_plural: str,
     if not scored:
         return "No comparable scores were produced for this category."
     n = len(agg["runs"])
+    noun_count = noun_plural[:-1] if n == 1 and noun_plural.endswith("s") else noun_plural
     where = (f"At each model's best-effort (high) setting across {n} {noun_plural}"
-             if multi_tier else f"Across the {n} {noun_plural}")
+             if multi_tier else f"Across the {n} {noun_count}")
     top_m, top_v = scored[0]
     s = (f"{where}, **{md_text(top_m)}** led with an average quality score of "
          f"**{top_v:.2f}/10**")
@@ -2105,17 +2186,26 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
         out.append(f"_No {title.lower()} runs found._\n")
         return "\n".join(out) + "\n"
     if emphasize_retention:
-        src = first_source_image(runs)
-        rel = assets.add(src, f"{anchor}-reference")
-        if rel:
-            src_sum = first_source_summary(runs)
-            out.append(f'<img src="{rel}" width="320">\n')
-            out.append("_Reference image — every edit below started from this exact source._\n")
-            if src_sum:
-                out.append(md_text(src_sum) + "\n")
-            out.append("Each edit scenario asks for one targeted change while keeping everything else identical, "
-                       "so the results can be compared directly against this image to judge how well the "
-                       "original detail is retained.\n")
+        refs = source_references(runs)
+        if refs:
+            out += ["#### Edit source references", "",
+                    "Edit scenarios are judged against their own source image. Each reference below is the "
+                    "visual ground truth for the scenarios listed on that card, so the result can be compared "
+                    "against the correct starting point.", ""]
+            items = []
+            for i, ref in enumerate(refs, 1):
+                rel = assets.add(ref.get("path"), f"{anchor}-reference-{i}")
+                if not rel:
+                    continue
+                scenarios = ", ".join(md_text(str(x)) for x in ref.get("scenarios") or [])
+                caption = f"**{md_text(ref.get('name') or 'Edit source')}**"
+                if scenarios:
+                    caption += f" — scenarios: {scenarios}"
+                if ref.get("summary"):
+                    caption += f" — {md_text(ref['summary'])}"
+                items.append((rel, caption))
+            if items:
+                out.append(_md_image_grid(items))
 
     ranked = sorted(head_comp, key=lambda m: (head["models"][m]["overall_avg"] is None,
                                               -(head["models"][m]["overall_avg"] or 0)))
@@ -2131,7 +2221,7 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
                    "at `quality=high`, FLUX at its high steps/guidance preset, and MAI-Image at its single "
                    "native operating point._\n")
     else:
-        out.append(f"_Average quality score across all {len(runs)} {noun_plural} "
+        out.append(f"_Average quality score across all {len(runs)} {noun if len(runs) == 1 else noun_plural} "
                    "(0–10, higher is better)._\n")
     lb_rows = []
     for i, m in enumerate(ranked, 1):
@@ -2163,7 +2253,7 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
     # 3) Per-run scores, grouped by quality tier.
     out += ["#### Per-run scores", ""]
     tiers = tiers_present(runs)
-    grouped = bool(tiers) and any(r.get("quality") for r in runs)
+    grouped = multi_tier and any(r.get("quality") for r in runs)
     fam = model_family_map(runs)
     fixed_models = {m for m in order if not has_quality_knob(fam.get(m))}
     rep_run: dict[tuple, dict] = {}
@@ -2287,7 +2377,7 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
     if not assets.no_images:
         out += ["#### Result gallery", ""]
         tiers = tiers_present(runs)
-        grouped = bool(tiers) and any(r.get("quality") for r in runs)
+        grouped = multi_tier and any(r.get("quality") for r in runs)
         # MAI-Image (no quality knob) sends an identical request at every tier, so
         # re-show its single best-effort image in each tier gallery with a remark.
         fam = model_family_map(runs)
@@ -2579,10 +2669,13 @@ def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -
     return "\n".join(out) + "\n"
 
 
-def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=None, latency=None) -> str:
+def render_markdown(gen, edit, edit_detail, edit_noise, safety, safety_runs, dataset_meta, assets, ref=None, latency=None) -> str:
     ref = ref or {"models": {}, "assumptions": {}}
     latency = latency or {}
-    models_all = sorted(set(gen["order"]) | set(edit["order"]) | set(safety["models"]), key=model_sort_key)
+    models_all = sorted(
+        set(gen["order"]) | set(edit["order"]) | set(edit_detail["order"]) | set(edit_noise["order"]) | set(safety["models"]),
+        key=model_sort_key,
+    )
 
     out = ["# Image Generation Model Comparison", ""]
     out.append("> **Disclaimer:** This report reflects a single run per test category "
@@ -2610,8 +2703,8 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
 
     out.append("## 1 · Image Generation Quality (including editing)\n")
     out.append("How well each model turns a prompt into an image, scored by the evaluator LLM across 13 "
-               "benchmark-aligned dimensions. Text-to-image generation and prompt-guided image editing are "
-               "reported as two subsections below.\n")
+               "benchmark-aligned dimensions. Text-to-image generation, standard prompt-guided editing, "
+               "and the focused noise/object-removal edit are reported as separate subsections below.\n")
     _ql_link = _doc_link_md(ref, "image_quality")
     _swept = tiers_present(gen["runs"]) or tiers_present(edit["runs"])
     if len(_swept) > 1:
@@ -2637,7 +2730,15 @@ def render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets, ref=No
                + (f" Deeper dive: {_ql_link} — how the 13 dimensions are defined and scored."
                   if _ql_link else "") + "\n")
     out.append(md_quality_section(gen, "Text-to-image generation", "generation", False, assets))
-    out.append(md_quality_section(edit, "Prompt-guided image editing", "edit", True, assets))
+    out.append(md_quality_section(edit_detail, "Prompt-guided image editing", "edit", True, assets))
+    if edit_noise["order"]:
+        out.append(md_quality_section(
+            edit_noise,
+            "Prompt-guided image editing - Noise Removal",
+            "edit-noise-removal",
+            True,
+            assets,
+        ))
 
     out.append(md_safety_section(safety, assets, ref))
     out.append(md_pricing_section(ref, models_all))
@@ -2685,9 +2786,13 @@ def main(argv: list[str] | None = None) -> int:
     safety_runs = load_safety_runs(results_dir)
     gen_runs = [r for r in quality_runs if r["category"] == "generation"]
     edit_runs = [r for r in quality_runs if r["category"] == "edit"]
+    edit_noise_runs = [r for r in edit_runs if is_noise_removal_edit_run(r)]
+    edit_detail_runs = [r for r in edit_runs if not is_noise_removal_edit_run(r)]
 
     gen = aggregate_quality(gen_runs, category="generation")
     edit = aggregate_quality(edit_runs, category="edit")
+    edit_detail = aggregate_quality(edit_detail_runs, category="edit")
+    edit_noise = aggregate_quality(edit_noise_runs, category="edit")
     merged_cells = dedupe_safety_cells(safety_runs)
     safety = aggregate_safety(merged_cells)
 
@@ -2741,7 +2846,7 @@ def main(argv: list[str] | None = None) -> int:
         "evaluator": evaluator,
     }
 
-    htmltext = render_html(gen, edit, safety, safety_runs, dataset_meta, args.no_images, args.thumb_px,
+    htmltext = render_html(gen, edit, edit_detail, edit_noise, safety, safety_runs, dataset_meta, args.no_images, args.thumb_px,
                            ref=ref, latency=latency)
 
     # Defensive secret/endpoint check. The config block is never rendered, but
@@ -2765,7 +2870,7 @@ def main(argv: list[str] | None = None) -> int:
         md_out = args.md_out
         assets_dir = md_out.parent / (md_out.stem + "-assets")
         assets = MdAssets(assets_dir, md_out.stem + "-assets", args.no_images, args.thumb_px)
-        mdtext = render_markdown(gen, edit, safety, safety_runs, dataset_meta, assets,
+        mdtext = render_markdown(gen, edit, edit_detail, edit_noise, safety, safety_runs, dataset_meta, assets,
                                  ref=ref, latency=latency)
         md_hits = [tok for tok in forbidden if tok in mdtext]
         if md_hits:

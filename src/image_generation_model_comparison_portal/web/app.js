@@ -33,6 +33,9 @@ const state = {
   ],
 };
 
+const DEFAULT_EDIT_REFERENCE_URL = "/static/edit-reference.png";
+const DEFAULT_EDIT_REFERENCE_NAME = "edit-reference.png";
+
 const byId = (id) => document.getElementById(id);
 
 function providers() {
@@ -69,6 +72,7 @@ function initStaticOptions() {
   fillSelect(byId("textQuality"), ["high", "medium", "low"]);
   fillSelect(byId("outputFormat"), ["png", "jpeg"]);
   fillSelect(byId("editSize"), ["1024x1024", "1024x1536", "1536x1024"]);
+  fillSelect(byId("editQuality"), ["high", "medium", "low"]);
 }
 
 function fillSelect(select, options) {
@@ -240,18 +244,25 @@ function canExportReport(run) {
 }
 
 function renderPreset(key) {
-  renderPresetForMode(key, "text");
+  void renderPresetForMode(key, "text");
 }
 
-function renderPresetForMode(key, mode = activeTab()) {
+async function renderPresetForMode(key, mode = activeTab()) {
   const preset = state.bootstrap.presets[key];
+  let status = `Loaded "${preset.title}".`;
   if (mode === "edit") {
     byId("editPrompt").value = preset.prompt;
+    try {
+      await loadDefaultEditReferenceImage();
+      status = `Loaded "${preset.title}" with the default edit reference image.`;
+    } catch (error) {
+      status = `Loaded "${preset.title}", but the default edit reference image could not be loaded: ${error.message}`;
+    }
   } else {
     byId("textPrompt").value = preset.prompt;
   }
   renderBenchAnnotation(preset.title, preset.dim_map || {}, mode);
-  getBenchElements(mode).status.textContent = `Loaded "${preset.title}".`;
+  getBenchElements(mode).status.textContent = status;
 }
 
 function getBenchElements(mode = activeTab()) {
@@ -280,6 +291,13 @@ function renderBenchAnnotation(title, dimensionMap, mode = activeTab()) {
   getBenchElements(mode).annotation.innerHTML = `<div class="bench-title">${escapeHtml(title || "Benchmark")}</div><div class="bench-tag-grid">${grid}</div>`;
 }
 
+function clearBenchAnnotation(mode = activeTab(), status = "") {
+  state.promptGuidance[mode] = { title: "", dimensionMap: {} };
+  const bench = getBenchElements(mode);
+  bench.annotation.innerHTML = "";
+  bench.status.textContent = status;
+}
+
 async function generateBenchmark(mode = activeTab()) {
   const bench = getBenchElements(mode);
   const idea = bench.idea.value.trim();
@@ -287,12 +305,21 @@ async function generateBenchmark(mode = activeTab()) {
     alert("Type a benchmark idea first.");
     return;
   }
+  let sourceFiles = [];
+  if (mode === "edit") {
+    const editFiles = byId("editSourceFiles").files;
+    if (!editFiles.length) {
+      alert("Select an edit source image first.");
+      return;
+    }
+    sourceFiles = await readFiles(editFiles);
+  }
   bench.button.disabled = true;
   bench.status.textContent = "Building benchmark...";
   try {
     const payload = await api("/api/benchmark", {
       method: "POST",
-      body: JSON.stringify({ config: collectConfig(), idea }),
+      body: JSON.stringify({ config: collectConfig(), idea, mode, sourceFiles }),
     });
     if (mode === "edit") {
       byId("editPrompt").value = payload.prompt || "";
@@ -523,6 +550,23 @@ async function loadEditPreview(fileList) {
   redrawMaskOverlay();
 }
 
+async function loadDefaultEditReferenceImage() {
+  const response = await fetch(DEFAULT_EDIT_REFERENCE_URL);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  if (typeof DataTransfer === "undefined") {
+    throw new Error("this browser cannot programmatically select a bundled image");
+  }
+  const blob = await response.blob();
+  const file = new File([blob], DEFAULT_EDIT_REFERENCE_NAME, { type: blob.type || "image/png" });
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  const input = byId("editSourceFiles");
+  input.files = transfer.files;
+  await loadEditPreview(input.files);
+}
+
 async function buildEditMaskPayload() {
   if (!state.editMask.sourceDataUrl || !hasMaskPaint()) {
     return [];
@@ -576,6 +620,7 @@ async function startRun(mode) {
       textQuality: byId("textQuality").value,
       outputFormat: byId("outputFormat").value,
       editSize: byId("editSize").value,
+      editQuality: byId("editQuality").value,
       sourceFiles: mode === "edit" ? await readFiles(byId("editSourceFiles").files) : [],
       maskFiles: mode === "edit" ? await buildEditMaskPayload() : [],
     };
@@ -1553,6 +1598,7 @@ function bindEvents() {
   });
   byId("editSourceFiles").addEventListener("change", async (event) => {
     await loadEditPreview(event.target.files);
+    clearBenchAnnotation("edit", "Source image changed. Generate a new benchmark for this image.");
   });
   byId("editBrushSize").addEventListener("input", (event) => {
     state.editMask.brushSize = Number(event.target.value || 40);
