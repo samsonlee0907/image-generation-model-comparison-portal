@@ -1664,9 +1664,7 @@ def render_availability_section(ref: dict, latency: dict, models_order: list[str
         out.append(f'<div class="callout"><b>About the configured capacity:</b> {esc(cap_note)} All models '
                    'were called sequentially (one request at a time) under these limits, so the '
                    'measured latency reflects single-request responsiveness, not throughput under '
-                   'concurrency. gpt-image-2 also honored <code>quality="high"</code> on every generation, '
-                   'which adds compute time and is part of why its measured latency is the highest here; '
-                   'FLUX and the MAI models ignore the quality parameter.</div>')
+                   'concurrency.</div>')
 
     rm_url = ref.get("region_matrix_url")
     q_url = ref.get("quota_doc_url")
@@ -2515,10 +2513,7 @@ def md_availability_section(ref: dict, latency: dict, models_order: list[str]) -
     if cap_note:
         out.append("> **About the configured capacity:** " + md_text(cap_note) + " All models were "
                    "called sequentially (one request at a time) under these limits, so the measured latency "
-                   "reflects single-request responsiveness, not throughput under concurrency. gpt-image-2 "
-                   'also honored `quality="high"` on every generation, which adds compute time and is part '
-                   "of why its measured latency is the highest here; FLUX and the MAI models ignore the "
-                   "quality parameter.\n")
+                   "reflects single-request responsiveness, not throughput under concurrency.\n")
     links = []
     if ref.get("region_matrix_url"):
         links.append(f"[Foundry region availability matrix]({ref['region_matrix_url']})")
