@@ -482,6 +482,18 @@ class RunManager:
         export_dir = repo_root / "portal-exports" / category / f"{stamp}-{run_id}"
         images_dir = export_dir / "images"
         images_dir.mkdir(parents=True, exist_ok=True)
+        source_records: list[dict[str, str]] = []
+        if category == "edit":
+            source_dir = export_dir / "source-images"
+            for index, source_path in enumerate(run.get("sourcePaths") or [], start=1):
+                src = Path(source_path)
+                if not src.exists():
+                    continue
+                suffix = src.suffix or ".png"
+                file_name = f"source-{index}{suffix}"
+                source_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, source_dir / file_name)
+                source_records.append({"path": f"source-images/{file_name}", "name": src.name})
 
         used_names: set[str] = set()
         records: list[dict[str, Any]] = []
@@ -534,6 +546,7 @@ class RunManager:
             "prompt": run.get("prompt"),
             "effectivePrompt": run.get("effectivePrompt"),
             "promptGuidance": run.get("promptGuidance"),
+            "sourceImages": source_records,
             "config": _redact_config(run.get("config") or {}),
             "results": records,
         }

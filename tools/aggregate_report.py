@@ -265,6 +265,19 @@ def scenario_target_text(run: dict[str, Any]) -> str:
     return str(text).strip() or "—"
 
 
+def first_source_image(runs: list[dict[str, Any]]) -> Path | None:
+    found = next((r.get("source_image") for r in runs if r.get("source_image")), None)
+    if found:
+        return found
+    repo_root = Path(__file__).resolve().parents[1]
+    archived = sorted((repo_root / "test-reports" / "archive").glob("*/aggregate-report-assets/edit-reference.*"))
+    return archived[-1] if archived else None
+
+
+def first_source_summary(runs: list[dict[str, Any]]) -> str:
+    return next((r.get("source_summary") for r in runs if r.get("source_summary")), "")
+
+
 def availability_region_sku(entry: dict[str, Any], measured: dict[str, Any]) -> str:
     """Configured deployment label from the measured subscription setup."""
     if measured:
@@ -311,9 +324,18 @@ def _find_source_image(data: dict[str, Any], run_dir: Path) -> Path | None:
     couple of parents for that basename.
     """
     names: list[str] = []
+    for item in data.get("sourceImages") or []:
+        rel = item.get("path") if isinstance(item, dict) else ""
+        if rel:
+            cand = run_dir / str(rel)
+            if cand.exists():
+                return cand
     for row in data.get("results", []):
         req = ((row.get("generation") or {}).get("request") or {})
         for item in req.get("image_files") or []:
+            cand = Path(str(item))
+            if cand.exists():
+                return cand
             base = Path(str(item)).name
             if base and base not in names:
                 names.append(base)
@@ -1097,6 +1119,20 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
     if not order:
         return heading + f'<p class="muted">No {esc(title.lower())} runs found.</p>'
     out = [heading]
+    if emphasize_retention and not no_images:
+        src = first_source_image(runs)
+        uri = embed_image(src, no_images, thumb_px)
+        if uri:
+            src_sum = first_source_summary(runs)
+            out.append(
+                '<div class="refimg"><figure><img src="' + uri + '" alt="reference image">'
+                '<figcaption>Reference image — every edit below started from this exact source.</figcaption>'
+                '</figure><div><h4 style="margin-top:0">The source being edited</h4>'
+                f'<p class="small muted">{esc(src_sum)}</p>'
+                '<p class="legend">Each edit scenario asks for one targeted change while keeping everything '
+                'else identical, so the results can be compared directly against this image to judge how '
+                'well the original detail is retained.</p></div></div>'
+            )
 
     # Ranking used by both the narrative and the leaderboard.
     ranked = sorted(head_comp, key=lambda m: (head["models"][m]["overall_avg"] is None,
@@ -1290,20 +1326,6 @@ def render_quality_section(agg: dict, colors: dict[str, str], title: str, anchor
 
     # 4) How each theme/scenario is tested — context for the gallery that follows.
     out.append(f'<h3 class="cat-sub" style="font-size:18px">How each {noun} is tested</h3>')
-    if emphasize_retention and not no_images:
-        src = next((r.get("source_image") for r in runs if r.get("source_image")), None)
-        uri = embed_image(src, no_images, thumb_px)
-        if uri:
-            src_sum = next((r.get("source_summary") for r in runs if r.get("source_summary")), "")
-            out.append(
-                '<div class="refimg"><figure><img src="' + uri + '" alt="reference image">'
-                '<figcaption>Reference image — every edit below started from this exact source.</figcaption>'
-                '</figure><div><h4 style="margin-top:0">The source being edited</h4>'
-                f'<p class="small muted">{esc(src_sum)}</p>'
-                '<p class="legend">Each scenario asks for one targeted change while keeping everything '
-                'else identical, so each result can be compared directly against this image to judge how '
-                'well the original detail is retained.</p></div></div>'
-            )
     out.append('<table><tr><th class="label">Run</th><th class="label">What it targets</th></tr>')
     seen_titles: set[str] = set()
     for run in runs:
@@ -1389,13 +1411,9 @@ def render_safety_section(agg: dict, safety_runs: list[dict], colors: dict[str, 
                'as a sensitivity profile.</p>')
     tolerance = agg.get("safety_tolerance_by_model") or {}
     if tolerance:
-        details = ", ".join(
-            f"{esc(model)}={esc(value)}" for model, value in sorted(tolerance.items(), key=lambda item: model_sort_key(item[0]))
-        )
         out.append('<p class="legend"><b>FLUX safety setting:</b> FLUX content-safety cells explicitly use '
                    '<code>safety_tolerance=2</code>, the Black Forest Labs documented default '
-                   '(0 = most strict, 5 = least strict). Merged cells with this setting: '
-                   f'{details}.</p>')
+                   '(0 = most strict, 5 = least strict).</p>')
     _sf_link = _doc_link_html(ref or {}, "content_safety")
     if _sf_link:
         out.append(f'<p class="legend">Deeper dive: {_sf_link} — the full severity taxonomy (L1–L5+), '
@@ -2091,6 +2109,18 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
     if not order:
         out.append(f"_No {title.lower()} runs found._\n")
         return "\n".join(out) + "\n"
+    if emphasize_retention:
+        src = first_source_image(runs)
+        rel = assets.add(src, f"{anchor}-reference")
+        if rel:
+            src_sum = first_source_summary(runs)
+            out.append(f'<img src="{rel}" width="320">\n')
+            out.append("_Reference image — every edit below started from this exact source._\n")
+            if src_sum:
+                out.append(md_text(src_sum) + "\n")
+            out.append("Each edit scenario asks for one targeted change while keeping everything else identical, "
+                       "so the results can be compared directly against this image to judge how well the "
+                       "original detail is retained.\n")
 
     ranked = sorted(head_comp, key=lambda m: (head["models"][m]["overall_avg"] is None,
                                               -(head["models"][m]["overall_avg"] or 0)))
@@ -2249,18 +2279,6 @@ def md_quality_section(agg: dict, title: str, anchor: str, emphasize_retention: 
 
     # 4) How each theme/scenario is tested (+ reference image for edits).
     out += [f"#### How each {noun} is tested", ""]
-    if emphasize_retention:
-        src = next((r.get("source_image") for r in runs if r.get("source_image")), None)
-        rel = assets.add(src, f"{anchor}-reference")
-        if rel:
-            src_sum = next((r.get("source_summary") for r in runs if r.get("source_summary")), "")
-            out.append(f'<img src="{rel}" width="320">\n')
-            out.append("_Reference image — every edit below started from this exact source._\n")
-            if src_sum:
-                out.append(md_text(src_sum) + "\n")
-            out.append("Each scenario asks for one targeted change while keeping everything else identical, "
-                       "so each result can be compared directly against this image to judge how well the "
-                       "original detail is retained.\n")
     seen_titles: list[list[str]] = []
     _seen: set[str] = set()
     for run in runs:
@@ -2344,14 +2362,9 @@ def md_safety_section(agg: dict, assets: "MdAssets", ref: dict | None = None) ->
                "(L4–L5+) gating rate as the headline and treat the lower tiers as a sensitivity profile.\n")
     tolerance = agg.get("safety_tolerance_by_model") or {}
     if tolerance:
-        details = ", ".join(
-            f"{md_text(model)}={md_text(value)}"
-            for model, value in sorted(tolerance.items(), key=lambda item: model_sort_key(item[0]))
-        )
         out.append("**FLUX safety setting:** FLUX content-safety cells explicitly use "
                    "`safety_tolerance=2`, the Black Forest Labs documented default "
-                   "(0 = most strict, 5 = least strict). Merged cells with this setting: "
-                   f"{details}.\n")
+                   "(0 = most strict, 5 = least strict).\n")
     _sf_link = _doc_link_md(ref or {}, "content_safety")
     if _sf_link:
         out.append(f"Deeper dive: {_sf_link} — the full severity taxonomy (L1–L5+), harm categories, and "

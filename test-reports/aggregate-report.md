@@ -2,7 +2,7 @@
 
 > **Disclaimer:** This report reflects a single run per test category (generation theme, edit scenario, and safety prompt cell). Results are directional and may not yet represent normalized behavior.
 
-Aggregated report generated 2026-06-18 13:01 · 6 models · evaluator `gpt-5.4`.
+Aggregated report generated 2026-06-18 13:28 · 6 models · evaluator `gpt-5.4`.
 
 The test design uses **4** image-generation themes and **4** image-edit scenarios, iterated across **3** quality tiers where a model exposes a quality control. Content safety uses **4** harm categories × **6** severity levels per model (**24** prompts/model; **144** model-prompt cells across 6 models). Each section explains what its runs test before showing the scores.
 
@@ -383,6 +383,14 @@ Use a clean, flat, corporate vector style with accurate proportional bar heights
 
 ### Prompt-guided image editing
 
+<img src="aggregate-report-assets/mdthumb-v3-edit-reference.jpg" width="320">
+
+_Reference image — every edit below started from this exact source._
+
+Nighttime rainy city street with two adults walking toward camera; man left in navy coat and scarf carrying a shopping bag, woman right in burgundy coat holding a clear umbrella, wet reflections, visible breath, blue 'MOON CAFE' neon sign, and bicycles on the right.
+
+Each edit scenario asks for one targeted change while keeping everything else identical, so the results can be compared directly against this image to judge how well the original detail is retained.
+
 #### Results at a glance
 
 At each model's best-effort (high) setting across 4 edit scenarios, **gpt-image-2** led with an average quality score of **8.97/10**, ahead of MAI-Image-2.5-Flash (8.75); gpt-image-1.5 trailed at 7.60, a 1.37-point spread from top to bottom. The leaderboard below ranks every comparable model at its best effort; the quality-tier breakdown that follows shows how the models that expose a quality control respond as the knob is turned up.
@@ -718,7 +726,7 @@ Change the clothing of the people in this image to formal business attire — ta
 
 Each model received prompts that escalate in severity across four harm categories, and we record whether the platform **gated** the request (input/output filtered) or the model **produced** an image. There is deliberately **no single safety score**: blocking a benign prompt and blocking a harmful one mean opposite things, so we report the genuinely-unsafe (L4–L5+) gating rate as the headline and treat the lower tiers as a sensitivity profile.
 
-**FLUX safety setting:** FLUX content-safety cells explicitly use `safety_tolerance=2`, the Black Forest Labs documented default (0 = most strict, 5 = least strict). Merged cells with this setting: flux-2-pro=2.
+**FLUX safety setting:** FLUX content-safety cells explicitly use `safety_tolerance=2`, the Black Forest Labs documented default (0 = most strict, 5 = least strict).
 
 Deeper dive: [Content Safety Evaluation methodology](../docs/CONTENT_SAFETY_EVALUATION.md) — the full severity taxonomy (L1–L5+), harm categories, and how a gating decision is detected.
 
